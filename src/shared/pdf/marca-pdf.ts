@@ -12,6 +12,7 @@ export const COLORES_PDF = {
   grafito: '#1B262D', // texto
   grisTexto: '#4A5258', // texto secundario
   borde: '#E4E2DA', // divisores finos
+  marco: '#000000', // recuadros del comprobante (emisor, receptor)
   fiordo: '#1E3A4C',
   terracota: '#C45C3B',
   blanco: '#FFFFFF',

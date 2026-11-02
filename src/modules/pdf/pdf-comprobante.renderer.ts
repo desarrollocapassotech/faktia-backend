@@ -149,13 +149,13 @@ export class PdfComprobanteRenderer {
   private encabezado(doc: PDFKit.PDFDocument, d: ComprobantePdfData, e: EstiloPdf, copia: string): number {
     let y = M;
     doc.fontSize(7).font(FUENTE.negrita).fillColor(C.grisTexto).text(copia, M, y + 3, { width: CW, align: 'center', characterSpacing: 1.5 });
-    doc.moveTo(M, y + 14).lineTo(M + CW, y + 14).lineWidth(LINEA).stroke(C.borde);
+    doc.moveTo(M, y + 14).lineTo(M + CW, y + 14).lineWidth(LINEA).stroke(C.marco);
     y += 20;
 
     const alto = 112;
     const x1 = M + CW / 2 - 30;
     const x2 = M + CW / 2 + 30;
-    doc.rect(M, y, CW, alto).lineWidth(LINEA).stroke(C.borde);
+    doc.rect(M, y, CW, alto).lineWidth(LINEA).stroke(C.marco);
 
     // Emisor
     let ey = y + 8;
@@ -178,7 +178,7 @@ export class PdfComprobanteRenderer {
     doc.fontSize(32).font(FUENTE.seminegrita).fillColor(e.colorPrimario).text(d.letra, x1, y + 5, { width: x2 - x1, align: 'center' });
     doc.fontSize(6.5).font(FUENTE.negrita).fillColor(C.grisTexto)
       .text(`COD. ${String(d.codigo).padStart(3, '0')}`, x1, y + 40, { width: x2 - x1, align: 'center', characterSpacing: 0.5 });
-    doc.moveTo((x1 + x2) / 2, y + 52).lineTo((x1 + x2) / 2, y + alto).lineWidth(LINEA).stroke(C.borde);
+    doc.moveTo((x1 + x2) / 2, y + 52).lineTo((x1 + x2) / 2, y + alto).lineWidth(LINEA).stroke(C.marco);
 
     // Datos del comprobante
     const xr = x2 + 10;
@@ -186,14 +186,17 @@ export class PdfComprobanteRenderer {
     doc.fontSize(13).font(FUENTE.seminegrita).fillColor(e.colorPrimario).text(d.titulo, xr, y + 8, { width: wr });
     doc.fontSize(8.5).font(FUENTE.seminegrita).fillColor(C.grafito)
       .text(`N° ${String(d.puntoVenta).padStart(5, '0')}-${String(d.numero).padStart(8, '0')}`, xr, y + 28, { width: wr, ...NUM });
-    doc.font(FUENTE.normal).fontSize(7.5).fillColor(C.grafito);
     const filas = [
-      `Fecha de emisión: ${d.fechaEmision}`,
-      `CUIT: ${d.emisor.cuit}`,
-      `Ingresos Brutos: ${d.emisor.ingresosBrutos || '-'}`,
-      `Inicio de actividades: ${d.emisor.inicioActividades || '-'}`,
+      ['Fecha de emisión', d.fechaEmision],
+      ['CUIT', d.emisor.cuit],
+      ['Ingresos Brutos', d.emisor.ingresosBrutos || '-'],
+      ['Inicio de actividades', d.emisor.inicioActividades || '-'],
     ];
-    filas.forEach((f, i) => doc.text(f, xr, y + 44 + i * 11, { width: wr, ...NUM }));
+    // Rótulo en negrita y valor normal, como en el bloque del receptor.
+    filas.forEach(([k, v], i) =>
+      doc.fontSize(7.5).font(FUENTE.seminegrita).fillColor(C.grafito).text(`${k}: `, xr, y + 44 + i * 11, { width: wr, continued: true })
+        .font(FUENTE.normal).text(v, { width: wr, ...NUM }),
+    );
 
     return y + alto + 6;
   }
@@ -228,7 +231,7 @@ export class PdfComprobanteRenderer {
     };
     const fin = Math.max(dibujar(izq, M + 8), dibujar(der, M + CW / 2 + 4));
     const alto = fin - y + 5;
-    doc.rect(M, y, CW, alto).lineWidth(LINEA).stroke(C.borde);
+    doc.rect(M, y, CW, alto).lineWidth(LINEA).stroke(C.marco);
     return y + alto + 10;
   }
 
