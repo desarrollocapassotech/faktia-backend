@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { AccesoController, IntegracionesController } from './integraciones.controller';
+import { FirebaseFederacionService } from './firebase-federacion.service';
 import { IntegracionesService } from './integraciones.service';
 
 @Module({
@@ -24,6 +25,12 @@ import { IntegracionesService } from './integraciones.service';
     }),
   ],
   controllers: [AuthController, IntegracionesController, AccesoController],
-  providers: [AuthService, IntegracionesService, AccesoService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    AuthService,
+    IntegracionesService,
+    AccesoService,
+    FirebaseFederacionService,
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AuthModule {}

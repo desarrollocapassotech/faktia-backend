@@ -75,6 +75,30 @@ export class IntegracionesService {
     return { ...auth, usuarioId: usuario.id };
   }
 
+  /**
+   * AuthContext de una integración por id (federación Firebase: el token ya se verificó).
+   * Mismas reglas que una API key: revocada o tenant inactivo → no autorizado.
+   */
+  async contextoDeIntegracion(id: string): Promise<AuthContext> {
+    const integracion = await this.prisma.integracion.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, origen: true, scopes: true, revocadaEn: true, ultimoUsoEn: true, tenant: { select: { activo: true } } },
+    });
+    if (!integracion || integracion.revocadaEn || !integracion.tenant.activo) {
+      throw new UnauthorizedException(CLAVE_INVALIDA);
+    }
+    if (!integracion.ultimoUsoEn || Date.now() - integracion.ultimoUsoEn.getTime() > UN_MINUTO) {
+      await this.prisma.integracion.update({ where: { id: integracion.id }, data: { ultimoUsoEn: new Date() } });
+    }
+    return {
+      tenantId: integracion.tenantId,
+      tipo: 'integracion',
+      integracionId: integracion.id,
+      origenIntegracion: integracion.origen,
+      scopes: integracion.scopes,
+    };
+  }
+
   /** Valida `X-Api-Key` y arma el AuthContext de la integración. */
   async validarApiKey(clave: string): Promise<AuthContext> {
     const prefijo = prefijoDeApiKey(clave);

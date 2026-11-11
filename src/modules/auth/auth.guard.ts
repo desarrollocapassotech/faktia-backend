@@ -5,6 +5,7 @@ import type { AuthContext } from './auth-context';
 import { AuthService } from './auth.service';
 import type { Scope } from './claves';
 import { API_KEY_SCOPES, IS_PUBLIC_KEY } from './decorators';
+import { FirebaseFederacionService } from './firebase-federacion.service';
 import { IntegracionesService } from './integraciones.service';
 
 /**
@@ -19,6 +20,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly authService: AuthService,
     private readonly integraciones: IntegracionesService,
+    private readonly federacion: FirebaseFederacionService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -31,10 +33,19 @@ export class AuthGuard implements CanActivate {
 
     if (Array.isArray(scopes)) {
       const clave = request.headers['x-api-key'];
-      if (typeof clave !== 'string' || !clave) throw new UnauthorizedException('Falta el header X-Api-Key.');
+      if (typeof clave !== 'string' || !clave) {
+        // Sin API key: integraciones sin backend pueden usar su sesión de Firebase (federación).
+        const bearer = request.headers.authorization;
+        const federado = bearer?.startsWith('Bearer ')
+          ? await this.federacion.validar(bearer.slice('Bearer '.length).trim())
+          : null;
+        if (!federado) throw new UnauthorizedException('Falta el header X-Api-Key.');
+        this.exigirScopes(federado, scopes);
+        request.auth = federado;
+        return true;
+      }
       const auth = await this.integraciones.validarApiKey(clave);
-      const faltan = scopes.filter((s) => !auth.scopes.includes(s));
-      if (faltan.length) throw new ForbiddenException(`La API key no tiene permiso para: ${faltan.join(', ')}.`);
+      this.exigirScopes(auth, scopes);
       const email = request.headers['x-usuario-email'];
       request.auth = typeof email === 'string' && email.trim() ? await this.integraciones.actuarComo(auth, email) : auth;
       return true;
@@ -47,5 +58,10 @@ export class AuthGuard implements CanActivate {
 
     request.auth = await this.authService.validarSesion(header.slice('Bearer '.length).trim());
     return true;
+  }
+
+  private exigirScopes(auth: AuthContext, scopes: Scope[]) {
+    const faltan = scopes.filter((s) => !auth.scopes.includes(s));
+    if (faltan.length) throw new ForbiddenException(`La API key no tiene permiso para: ${faltan.join(', ')}.`);
   }
 }

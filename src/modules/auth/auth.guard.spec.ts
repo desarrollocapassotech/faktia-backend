@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from './auth.guard';
 import type { AuthService } from './auth.service';
 import { API_KEY_SCOPES, IS_PUBLIC_KEY } from './decorators';
+import type { FirebaseFederacionService } from './firebase-federacion.service';
 import type { IntegracionesService } from './integraciones.service';
 
 function contexto(headers: Record<string, string>, request: Record<string, unknown> = {}) {
@@ -33,7 +34,15 @@ describe('AuthGuard', () => {
       return { tenantId: 't1', tipo: 'integracion', integracionId: 'i1', scopes: ['acceso:emitir'] };
     }),
   } as unknown as IntegracionesService;
-  const guard = (meta: { publica?: boolean; scopes?: string[] }) => new AuthGuard(reflector(meta), authService, integraciones);
+  const federacion = {
+    validar: jest.fn(async (token: string) =>
+      token === 'firebase-ok'
+        ? { tenantId: 't1', tipo: 'integracion', integracionId: 'i2', usuarioId: 'u9', scopes: ['comprobantes:read'] }
+        : null,
+    ),
+  } as unknown as FirebaseFederacionService;
+  const guard = (meta: { publica?: boolean; scopes?: string[] }) =>
+    new AuthGuard(reflector(meta), authService, integraciones, federacion);
 
   it('deja pasar rutas @Public() sin header', async () => {
     await expect(guard({ publica: true }).canActivate(contexto({}))).resolves.toBe(true);
@@ -74,6 +83,18 @@ describe('AuthGuard', () => {
 
     it('rechazan una key inválida', async () => {
       await expect(guard({ scopes: [] }).canActivate(contexto({ 'x-api-key': 'fct_mala' }))).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('aceptan un token de Firebase federado con el scope', async () => {
+      const request: Record<string, unknown> = {};
+      await guard({ scopes: ['comprobantes:read'] }).canActivate(contexto({ authorization: 'Bearer firebase-ok' }, request));
+      expect(request.auth).toMatchObject({ integracionId: 'i2', usuarioId: 'u9' });
+    });
+
+    it('rechazan un token de Firebase federado sin el scope', async () => {
+      await expect(
+        guard({ scopes: ['comprobantes:write'] }).canActivate(contexto({ authorization: 'Bearer firebase-ok' })),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });
