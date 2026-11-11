@@ -92,6 +92,16 @@ Con la clave fiscal del CUIT emisor. **Hay un asistente paso a paso en Configura
   Generar), `FACTURADOR_API_URL` (URL del backend + `/api`) y `FACTURADOR_API_KEY` (Configuración → Integraciones, permiso
   "acceso"). La URL del tracker tiene que ser https.
 - **Webhooks**: solo https y a direcciones públicas.
+- **Sistemas sin backend con Firebase Auth (ej. panel de EFE Capital)**: en lugar de una API key en el navegador, usan
+  el ID token de Firebase del usuario. Pasos:
+  1. Configuración → Integraciones: crear una integración (origen API) con los permisos que necesite
+     (`comprobantes:read`, `comprobantes:write`, `items:write`). La clave no se usa; anotar el **id** de la integración.
+  2. Variable `FIREBASE_FEDERACION` (JSON):
+     `[{"projectId":"efecapitaladmin","integracionId":"<id>","emails":["persona@efecapital.com"]}]`.
+     Solo esos emails pueden operar; cada acción queda auditada con el email del usuario.
+  3. Agregar el origen del panel a `FRONTEND_URL` (CORS), separado por coma.
+  4. En el panel: `VITE_FAKTIA_API_URL=https://<backend>/api`.
+  Revocar la integración corta el acceso de inmediato.
 
 ## Volver a homologación
 
