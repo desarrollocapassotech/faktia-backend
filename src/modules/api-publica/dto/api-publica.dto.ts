@@ -231,6 +231,11 @@ export class ListarComprobantesApiQuery {
   @IsString()
   clienteId?: string;
 
+  /** YYYY-MM: comprobantes cuyo período de servicio abarca ese mes (ej. las facturas de octubre: `2026-10`). */
+  @IsOptional()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'periodo debe tener formato YYYY-MM.' })
+  periodo?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

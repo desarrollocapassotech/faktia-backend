@@ -357,6 +357,11 @@ const hayBase = Boolean(process.env.DATABASE_URL);
 
     const listado = await api('GET', `/comprobantes?clienteId=${clienteId}`);
     expect(listado.body.total).toBe(2);
+
+    // Filtro por período de servicio (factura y nota son de septiembre 2026).
+    expect((await api('GET', `/comprobantes?clienteId=${clienteId}&periodo=2026-09`)).body.total).toBe(2);
+    expect((await api('GET', `/comprobantes?clienteId=${clienteId}&periodo=2026-10`)).body.total).toBe(0);
+    expect((await api('GET', '/comprobantes?periodo=2026-13')).status).toBe(400);
   });
 
   it('recibo sin validez fiscal: devuelve el PDF y no guarda nada', async () => {

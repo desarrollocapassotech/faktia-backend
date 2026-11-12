@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+export const PERIODO = /^\d{4}-(0[1-9]|1[0-2])$/;
 const aTexto = ({ value }: { value: unknown }) => (typeof value === 'number' ? String(value) : value);
 
 export class LineaDto {
@@ -209,6 +210,11 @@ export class ListarComprobantesQuery {
   @IsOptional()
   @IsString()
   clienteId?: string;
+
+  /** YYYY-MM: comprobantes cuyo período de servicio abarca ese mes. */
+  @IsOptional()
+  @Matches(PERIODO, { message: 'periodo debe tener formato YYYY-MM.' })
+  periodo?: string;
 
   @IsOptional()
   @Type(() => Number)

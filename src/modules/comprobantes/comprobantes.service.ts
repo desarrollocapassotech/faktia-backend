@@ -50,6 +50,15 @@ function fecha(v: string | null | undefined): Date | null {
   return v ? deYmdArca(v) : null;
 }
 
+/** "YYYY-MM" → comprobantes cuyo período de servicio se superpone con ese mes. */
+export function filtroPeriodo(periodo: string): Prisma.ComprobanteWhereInput {
+  const [anio, mes] = periodo.split('-').map(Number);
+  return {
+    fechaServicioDesde: { lte: new Date(Date.UTC(anio, mes, 0)) },
+    fechaServicioHasta: { gte: new Date(Date.UTC(anio, mes - 1, 1)) },
+  };
+}
+
 function aYmd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
@@ -124,6 +133,7 @@ export class ComprobantesService {
       tenantId,
       ...(q.estado ? { estado: q.estado } : {}),
       ...(q.clienteId ? { clienteId: q.clienteId } : {}),
+      ...(q.periodo ? filtroPeriodo(q.periodo) : {}),
     };
     const [total, items] = await Promise.all([
       this.prisma.comprobante.count({ where }),
