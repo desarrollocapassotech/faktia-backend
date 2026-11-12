@@ -153,6 +153,9 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     expect(r.body.emisor).toMatchObject({
       razonSocial: 'E2E V1 SA',
       condicionIva: 'RESPONSABLE_INSCRIPTO',
+      domicilioFiscal: 'Calle 1',
+      ingresosBrutos: null,
+      inicioActividades: '2020-01-01',
       ambiente: 'HOMOLOGACION',
     });
     expect(r.body.puntosVenta).toHaveLength(1);

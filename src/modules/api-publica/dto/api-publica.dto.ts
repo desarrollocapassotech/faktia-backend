@@ -333,6 +333,11 @@ export class EmisorPublicoDto {
   nombreFantasia: string;
   cuit: string;
   condicionIva: string;
+  domicilioFiscal: string;
+  /** Número de Ingresos Brutos (o "Exento"), si está cargado. */
+  ingresosBrutos: string | null;
+  /** YYYY-MM-DD, si está cargado. */
+  inicioActividades: string | null;
   /** HOMOLOGACION (sin validez fiscal) o PRODUCCION. */
   ambiente: string;
 }

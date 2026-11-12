@@ -735,6 +735,16 @@
             }
           },
           {
+            "name": "periodo",
+            "required": false,
+            "in": "query",
+            "description": "YYYY-MM: comprobantes cuyo período de servicio abarca ese mes (ej. las facturas de octubre: `2026-10`).",
+            "schema": {
+              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+              "type": "string"
+            }
+          },
+          {
             "name": "pagina",
             "required": false,
             "in": "query",

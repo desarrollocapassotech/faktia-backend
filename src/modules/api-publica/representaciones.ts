@@ -199,7 +199,16 @@ export function importacionPublica(i: ImportacionInterna): ImportacionPublicaDto
 }
 
 export interface ConfiguracionInterna {
-  emisor: { razonSocial: string; nombreFantasia: string; cuit: string; condicionIva: string; ambienteArca: string };
+  emisor: {
+    razonSocial: string;
+    nombreFantasia: string;
+    cuit: string;
+    condicionIva: string;
+    domicilioFiscal: string;
+    ingresosBrutos: string | null;
+    inicioActividades: Date | null;
+    ambienteArca: string;
+  };
   puntosVenta: Array<{ id: string; numero: number; ambiente: string; descripcion: string | null; activo: boolean }>;
 }
 
@@ -211,6 +220,9 @@ export function configuracionPublica(c: ConfiguracionInterna): ConfiguracionPubl
       nombreFantasia: c.emisor.nombreFantasia,
       cuit: c.emisor.cuit,
       condicionIva: c.emisor.condicionIva,
+      domicilioFiscal: c.emisor.domicilioFiscal,
+      ingresosBrutos: c.emisor.ingresosBrutos,
+      inicioActividades: c.emisor.inicioActividades ? c.emisor.inicioActividades.toISOString().slice(0, 10) : null,
       ambiente: c.emisor.ambienteArca,
     },
     puntosVenta: c.puntosVenta
