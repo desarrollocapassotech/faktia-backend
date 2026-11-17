@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AmbienteArca, Prisma } from '@prisma/client';
+import { AmbienteArca, CondicionIva, Prisma } from '@prisma/client';
 import { cifrar, descifrar } from '../../shared/crypto/cifrado';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { esCuitValido, normalizarCuit } from '../../shared/util/cuit';
 import { analizarCertificado, CertificadoInvalidoError, normalizarPem } from './certificado.util';
 import {
   ActualizarEmisorDto,
@@ -16,17 +17,36 @@ export const CUIT_PRUEBA_AFIPSDK = '20409378472';
 
 const LOGO_MAX_BYTES = 300 * 1024;
 
+/** Datos del emisor tal como están: una empresa recién registrada todavía no tiene los fiscales. */
 export interface EmisorDatos {
   id: string;
   slug: string;
   nombreFantasia: string;
-  razonSocial: string;
-  cuit: string;
-  condicionIva: import('@prisma/client').CondicionIva;
-  domicilioFiscal: string;
+  razonSocial: string | null;
+  cuit: string | null;
+  condicionIva: CondicionIva | null;
+  domicilioFiscal: string | null;
   ingresosBrutos: string | null;
   inicioActividades: Date | null;
   ambienteArca: AmbienteArca;
+  /** true cuando razón social, CUIT, condición IVA y domicilio están cargados (alcanza para facturar). */
+  datosFiscalesCompletos: boolean;
+}
+
+/** Emisor con los datos fiscales obligatorios: lo que necesita todo lo que factura o arma documentos. */
+export type EmisorCompleto = EmisorDatos & {
+  razonSocial: string;
+  cuit: string;
+  condicionIva: CondicionIva;
+  domicilioFiscal: string;
+  datosFiscalesCompletos: true;
+};
+
+export const FALTAN_DATOS_FISCALES =
+  'Antes de facturar completá los datos fiscales de tu empresa (razón social, CUIT, condición IVA y domicilio) en Configuración.';
+
+function esCompleto(e: EmisorDatos): e is EmisorCompleto {
+  return e.datosFiscalesCompletos;
 }
 
 export interface PlantillaPdfDatos {
@@ -66,13 +86,45 @@ export class TenantsService {
       ingresosBrutos: t.ingresosBrutos,
       inicioActividades: t.inicioActividades,
       ambienteArca: t.ambienteArca,
+      datosFiscalesCompletos: Boolean(t.razonSocial?.trim() && t.cuit && t.condicionIva && t.domicilioFiscal?.trim()),
     };
   }
 
+  /** Para facturar, emitir o armar documentos: falla con un mensaje claro si faltan datos fiscales. */
+  async obtenerEmisorCompleto(tenantId: string): Promise<EmisorCompleto> {
+    const emisor = await this.obtenerEmisor(tenantId);
+    if (!esCompleto(emisor)) throw new BadRequestException(FALTAN_DATOS_FISCALES);
+    return emisor;
+  }
+
   async actualizarEmisor(tenantId: string, dto: ActualizarEmisorDto): Promise<EmisorDatos> {
+    let cuit: string | undefined;
+    if (dto.cuit !== undefined) {
+      cuit = normalizarCuit(dto.cuit);
+      if (!esCuitValido(cuit)) throw new BadRequestException(`El CUIT ${dto.cuit} no es válido (revisá el dígito verificador).`);
+      const actual = await this.obtenerEmisor(tenantId);
+      // El CUIT se carga una sola vez: cambiarlo después dejaría comprobantes y certificados de otro CUIT.
+      if (actual.cuit && actual.cuit !== cuit) {
+        throw new BadRequestException('El CUIT de la empresa ya está cargado y no se puede cambiar. Escribinos si necesitás corregirlo.');
+      }
+      if (actual.cuit === cuit) cuit = undefined;
+    }
+    try {
+      await this.actualizarDatosEmisor(tenantId, dto, cuit);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Ya hay otra empresa registrada con ese CUIT.');
+      }
+      throw err;
+    }
+    return this.obtenerEmisor(tenantId);
+  }
+
+  private async actualizarDatosEmisor(tenantId: string, dto: ActualizarEmisorDto, cuit: string | undefined) {
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
+        cuit,
         nombreFantasia: dto.nombreFantasia?.trim(),
         razonSocial: dto.razonSocial?.trim(),
         condicionIva: dto.condicionIva,
@@ -86,7 +138,6 @@ export class TenantsService {
               : null,
       },
     });
-    return this.obtenerEmisor(tenantId);
   }
 
   // ── Puntos de venta ──────────────────────────────────────────────────────
@@ -151,6 +202,9 @@ export class TenantsService {
 
   async cargarCertificado(tenantId: string, usuarioId: string | undefined, dto: CargarCertificadoDto) {
     const tenant = await this.obtenerEmisor(tenantId);
+    if (!tenant.cuit) {
+      throw new BadRequestException('Antes de cargar el certificado completá el CUIT de la empresa en Configuración.');
+    }
     let info;
     try {
       info = analizarCertificado(dto.certificadoPem, dto.clavePrivadaPem);

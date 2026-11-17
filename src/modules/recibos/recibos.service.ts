@@ -11,7 +11,7 @@ export class RecibosService {
   constructor(private readonly tenants: TenantsService) {}
 
   async generar(tenantId: string, dto: GenerarReciboDto): Promise<ReciboOutput> {
-    const [emisor, plantilla] = await Promise.all([this.tenants.obtenerEmisor(tenantId), this.tenants.obtenerPlantilla(tenantId)]);
+    const [emisor, plantilla] = await Promise.all([this.tenants.obtenerEmisorCompleto(tenantId), this.tenants.obtenerPlantilla(tenantId)]);
     const tenant: Parte = {
       nombre: emisor.razonSocial,
       documento: `CUIT ${formatearCuit(emisor.cuit)}`,

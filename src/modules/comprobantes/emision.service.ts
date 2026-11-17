@@ -410,7 +410,7 @@ export class EmisionService {
     c: ComprobanteDetalle,
     cred: CredencialesArca,
   ): Promise<{ emisor: EmisorSnapshot; receptor: ReceptorSnapshot }> {
-    const emisor = await this.tenants.obtenerEmisor(tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(tenantId);
     const faltan: string[] = [];
     if (!emisor.razonSocial.trim()) faltan.push('razón social del emisor');
     if (!emisor.domicilioFiscal.trim()) faltan.push('domicilio fiscal del emisor');

@@ -1,11 +1,33 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { AuthContext, SesionJwtPayload } from './auth-context';
 import { LoginDto } from './dto/login.dto';
-import { hashPassword, normalizarEmail, verificarPassword } from './password';
+import { RegistroDto } from './dto/registro.dto';
+import { hashPassword, normalizarEmail, validarPassword, verificarPassword } from './password';
 
 const CREDENCIALES_INVALIDAS = 'Email o contraseña incorrectos.';
+
+/** "Estudio Pérez & Asoc." → "estudio-perez-asoc" (mismo formato que acepta el login: [a-z0-9-]{2,60}). */
+export function slugDeNombre(nombre: string): string {
+  const slug = nombre
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+    .replace(/-+$/, '');
+  return slug.length >= 2 ? slug : 'empresa';
+}
+
+function esConflictoDeSlug(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  return Array.isArray(target) ? target.includes('slug') : String(target ?? '').includes('slug');
+}
 
 export interface SesionResponse {
   accessToken: string;
@@ -63,6 +85,44 @@ export class AuthService {
     return this.sesionPara(coincidencias[0].tenantId, coincidencias[0].id);
   }
 
+  /**
+   * Registro por autoservicio: crea una empresa nueva con su primer usuario y abre la sesión.
+   * La empresa nace solo con el nombre (en homologación); los datos fiscales se piden después.
+   * Usuario y empresa se crean en un solo INSERT anidado, así que no queda ninguno huérfano.
+   */
+  async registrar(dto: RegistroDto): Promise<SesionResponse> {
+    const email = normalizarEmail(dto.email);
+    const nombreEmpresa = dto.nombreEmpresa.trim();
+    if (!nombreEmpresa) throw new BadRequestException('Falta el nombre de la empresa.');
+    const errorPassword = validarPassword(dto.password);
+    if (errorPassword) throw new BadRequestException(errorPassword);
+
+    if (await this.prisma.usuario.findFirst({ where: { email }, select: { id: true } })) {
+      throw new ConflictException('Ya hay una cuenta con ese email. Ingresá con tu contraseña.');
+    }
+
+    const passwordHash = await hashPassword(dto.password);
+    const base = slugDeNombre(nombreEmpresa);
+    for (let intento = 0; intento < 5; intento++) {
+      const slug = intento === 0 ? base : `${base.slice(0, 50)}-${randomBytes(3).toString('hex')}`;
+      try {
+        const usuario = await this.prisma.usuario.create({
+          data: {
+            email,
+            passwordHash,
+            creadoPor: 'registro',
+            tenant: { create: { slug, nombreFantasia: nombreEmpresa } },
+          },
+          select: { id: true, tenantId: true },
+        });
+        return this.sesionPara(usuario.tenantId, usuario.id);
+      } catch (err) {
+        if (!esConflictoDeSlug(err)) throw err;
+      }
+    }
+    throw new ConflictException('No pudimos crear la empresa. Probá de nuevo en unos segundos.');
+  }
+
   /** Emite el JWT de sesión de un usuario activo (login con contraseña o canje de token de acceso). */
   async sesionPara(tenantId: string, usuarioId: string): Promise<SesionResponse> {
     const usuario = await this.prisma.usuario.findUnique({
@@ -116,16 +176,30 @@ export class AuthService {
         id: true,
         email: true,
         nombre: true,
-        tenant: { select: { id: true, slug: true, nombreFantasia: true, ambienteArca: true } },
+        tenant: {
+          select: {
+            id: true,
+            slug: true,
+            nombreFantasia: true,
+            ambienteArca: true,
+            razonSocial: true,
+            cuit: true,
+            condicionIva: true,
+            domicilioFiscal: true,
+          },
+        },
       },
     });
+    const t = usuario.tenant;
     return {
       usuario: { id: usuario.id, email: usuario.email, nombre: usuario.nombre },
       tenant: {
-        id: usuario.tenant.id,
-        slug: usuario.tenant.slug,
-        nombre: usuario.tenant.nombreFantasia,
-        ambienteArca: usuario.tenant.ambienteArca,
+        id: t.id,
+        slug: t.slug,
+        nombre: t.nombreFantasia,
+        ambienteArca: t.ambienteArca,
+        // Mismo criterio que TenantsService.obtenerEmisor: sin esto no se puede facturar.
+        datosFiscalesCompletos: Boolean(t.razonSocial?.trim() && t.cuit && t.condicionIva && t.domicilioFiscal?.trim()),
       },
     };
   }

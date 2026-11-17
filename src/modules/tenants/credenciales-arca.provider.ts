@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AmbienteArca } from '@prisma/client';
 import type { CredencialesArca } from '../arca';
-import { CUIT_PRUEBA_AFIPSDK, TenantsService } from './tenants.service';
+import { CUIT_PRUEBA_AFIPSDK, FALTAN_DATOS_FISCALES, TenantsService } from './tenants.service';
 
 /**
  * Arma las credenciales ARCA del tenant para su ambiente actual.
@@ -23,10 +23,12 @@ export class CredencialesArcaProvider {
     const emisor = await this.tenants.obtenerEmisor(tenantId);
     const cert = await this.tenants.certificadoActivo(tenantId, ambiente);
     const usaCuitPrueba = ambiente === 'HOMOLOGACION' && !cert;
+    // Sin CUIT no hay certificado (cargarCertificado lo exige), así que esto solo pasa con datos inconsistentes.
+    if (!usaCuitPrueba && !emisor.cuit) throw new BadRequestException(FALTAN_DATOS_FISCALES);
     return {
       tenantId,
       ambiente,
-      cuit: usaCuitPrueba ? CUIT_PRUEBA_AFIPSDK : emisor.cuit,
+      cuit: usaCuitPrueba ? CUIT_PRUEBA_AFIPSDK : (emisor.cuit as string),
       certPem: cert?.certPem ?? null,
       keyPem: cert?.keyPem ?? null,
       usaCuitPrueba,

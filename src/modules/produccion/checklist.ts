@@ -12,7 +12,7 @@ export interface Chequeo {
 }
 
 export interface DatosChequeo {
-  emisor: { razonSocial: string; domicilioFiscal: string; inicioActividades: Date | null; cuit: string };
+  emisor: { razonSocial: string | null; domicilioFiscal: string | null; inicioActividades: Date | null; cuit: string | null };
   afipSdkConfigurado: boolean;
   certificado: { venceEl: Date; alias: string | null } | null;
   puntosVentaProduccion: number[];
@@ -30,10 +30,10 @@ function ddmmaaaa(d: Date): string {
 export function evaluarChecklist(d: DatosChequeo): Chequeo[] {
   const ahora = d.ahora ?? new Date();
   const faltan = [
-    !d.emisor.razonSocial.trim() && 'razón social',
-    !d.emisor.domicilioFiscal.trim() && 'domicilio fiscal',
+    !d.emisor.razonSocial?.trim() && 'razón social',
+    !d.emisor.domicilioFiscal?.trim() && 'domicilio fiscal',
     !d.emisor.inicioActividades && 'inicio de actividades',
-    !/^\d{11}$/.test(d.emisor.cuit) && 'CUIT',
+    !/^\d{11}$/.test(d.emisor.cuit ?? '') && 'CUIT',
   ].filter(Boolean);
 
   const dias = d.certificado ? Math.floor((d.certificado.venceEl.getTime() - ahora.getTime()) / DIA) : null;

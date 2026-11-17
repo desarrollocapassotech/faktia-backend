@@ -1,7 +1,8 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../shared/prisma/prisma.service';
-import { AuthService } from './auth.service';
+import { AuthService, slugDeNombre } from './auth.service';
 import { hashPassword } from './password';
 
 const SECRET = 'secreto-de-test-con-mas-de-32-caracteres!!';
@@ -30,6 +31,30 @@ function crearPrismaFake(usuarios: UsuarioFake[]) {
             (!where.tenant.slug || u.tenant.slug === where.tenant.slug),
         ),
       ),
+      findFirst: jest.fn(async ({ where }) => usuarios.find((u) => u.email === where.email) ?? null),
+      create: jest.fn(async ({ data }) => {
+        const slug = data.tenant.create.slug as string;
+        if (usuarios.some((u) => u.tenant.slug === slug)) {
+          throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+            code: 'P2002',
+            clientVersion: 'test',
+            meta: { target: ['slug'] },
+          });
+        }
+        const n = usuarios.length + 1;
+        const nuevo: UsuarioFake = {
+          id: `u${n}`,
+          tenantId: `t${n}`,
+          email: data.email,
+          nombre: null,
+          passwordHash: data.passwordHash,
+          tokenVersion: 0,
+          activo: true,
+          tenant: { id: `t${n}`, slug, nombreFantasia: data.tenant.create.nombreFantasia, activo: true },
+        };
+        usuarios.push(nuevo);
+        return { id: nuevo.id, tenantId: nuevo.tenantId };
+      }),
       update: jest.fn(async () => ({})),
       findUnique: jest.fn(async ({ where }) => {
         const u = usuarios.find(
@@ -107,6 +132,51 @@ describe('AuthService', () => {
       tenantSlug: 'empresa-dos',
     });
     expect(res.tenant.slug).toBe('empresa-dos');
+  });
+
+  describe('registrar', () => {
+    it('crea empresa y usuario, abre la sesión y después puede loguearse', async () => {
+      const usuarios: UsuarioFake[] = [];
+      const service = new AuthService(crearPrismaFake(usuarios), jwt);
+      const res = await service.registrar({ nombreEmpresa: '  Estudio Pérez  ', email: 'Nuevo@Mail.com', password: 'una-clave-larga' });
+
+      expect(res.tenant).toMatchObject({ slug: 'estudio-perez', nombre: 'Estudio Pérez' });
+      expect(res.usuario.email).toBe('nuevo@mail.com');
+      expect(await jwt.verifyAsync(res.accessToken)).toMatchObject({ sub: res.usuario.id, tid: res.tenant.id });
+
+      const login = await service.login({ email: 'nuevo@mail.com', password: 'una-clave-larga' });
+      expect(login.tenant.id).toBe(res.tenant.id);
+    });
+
+    it('si el slug está tomado, le agrega un sufijo', async () => {
+      const service = new AuthService(crearPrismaFake([usuario({ email: 'otro@x.com', tenant: { id: 't1', slug: 'empresa-uno', nombreFantasia: 'Empresa Uno', activo: true } })]), jwt);
+      const res = await service.registrar({ nombreEmpresa: 'Empresa Uno', email: 'nueva@x.com', password: 'una-clave-larga' });
+      expect(res.tenant.slug).toMatch(/^empresa-uno-[0-9a-f]{6}$/);
+    });
+
+    it('rechaza un email que ya tiene cuenta', async () => {
+      const service = new AuthService(crearPrismaFake([usuario()]), jwt);
+      await expect(
+        service.registrar({ nombreEmpresa: 'Otra', email: 'ANA@empresa.com', password: 'una-clave-larga' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rechaza contraseñas cortas y nombres vacíos', async () => {
+      const service = new AuthService(crearPrismaFake([]), jwt);
+      await expect(service.registrar({ nombreEmpresa: 'X SA', email: 'a@b.com', password: 'corta' })).rejects.toThrow(BadRequestException);
+      await expect(service.registrar({ nombreEmpresa: '   ', email: 'a@b.com', password: 'una-clave-larga' })).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('slugDeNombre', () => {
+    it.each([
+      ['Estudio Pérez & Asoc.', 'estudio-perez-asoc'],
+      ['  ÑANDÚ  S.R.L. ', 'nandu-s-r-l'],
+      ['!!', 'empresa'],
+      ['a'.repeat(80), 'a'.repeat(50)],
+    ])('%s → %s', (nombre, esperado) => {
+      expect(slugDeNombre(nombre)).toBe(esperado);
+    });
   });
 
   describe('validarSesion', () => {

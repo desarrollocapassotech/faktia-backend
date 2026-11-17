@@ -18,7 +18,9 @@ Base de datos: proyecto Neon `facturador`, ramas `develop` (desarrollo) y `produ
 
 ## Crear tenants y usuarios
 
-No hay registro público: los tenants y usuarios se crean por script.
+Cualquiera puede registrarse desde `/registro` del frontend (`POST /api/auth/registro`): se crea una empresa nueva, en homologación, con su primer usuario. La empresa nace solo con el nombre, y los datos fiscales (razón social, CUIT, condición IVA, domicilio) se completan después en Configuración. Hasta tenerlos no se puede facturar.
+
+Para dar de alta empresas o usuarios a mano siguen estando los scripts:
 
 ```bash
 npm run crear-tenant -- --slug capassotech --nombre "CapassoTech" \

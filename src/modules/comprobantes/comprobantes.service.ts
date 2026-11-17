@@ -164,7 +164,7 @@ export class ComprobantesService {
 
   async obtener(tenantId: string, id: string) {
     const c = await this.buscar(tenantId, id);
-    const emisor = await this.tenants.obtenerEmisor(tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(tenantId);
     const letraSugerida = sugerirLetra(emisor.condicionIva, c.cliente.condicionIva);
     const letra = TIPOS_COMPROBANTE[c.tipo].letra;
     return {
@@ -191,7 +191,7 @@ export class ComprobantesService {
   // ── Borradores ───────────────────────────────────────────────────────────
 
   async crearBorrador(auth: AuthContext, dto: CrearBorradorDto) {
-    const emisor = await this.tenants.obtenerEmisor(auth.tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(auth.tenantId);
     const cliente = await this.clientes.obtener(auth.tenantId, dto.clienteId);
     const pv = await this.puntoVentaValido(auth.tenantId, dto.puntoVentaId, emisor.ambienteArca);
     const tipo = dto.tipo ?? tipoComprobante(sugerirLetra(emisor.condicionIva, cliente.condicionIva), 'FACTURA');
@@ -239,7 +239,7 @@ export class ComprobantesService {
       throw new ConflictException('El comprobante cambió mientras lo editabas. Recargalo y volvé a intentar.');
     }
 
-    const emisor = await this.tenants.obtenerEmisor(auth.tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(auth.tenantId);
     const clienteId = dto.clienteId ?? actual.clienteId;
     if (actual.asociadoId && dto.clienteId && dto.clienteId !== actual.clienteId) {
       throw new BadRequestException('Una nota de crédito o débito tiene que ser para el mismo cliente que la factura.');
@@ -354,7 +354,7 @@ export class ComprobantesService {
     }
     if (!items.length) throw new BadRequestException('No hay ítems válidos para facturar (¿confirmaste la importación?).');
 
-    const emisor = await this.tenants.obtenerEmisor(auth.tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(auth.tenantId);
     if (!dto.puntoVentaId) await this.tenants.asegurarPuntoVentaHomologacion(auth.tenantId, emisor.ambienteArca);
     const pv = dto.puntoVentaId
       ? await this.puntoVentaValido(auth.tenantId, dto.puntoVentaId, emisor.ambienteArca)

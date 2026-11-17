@@ -117,10 +117,12 @@ model Tenant {
   id                String       @id @default(cuid())
   slug              String       @unique
   nombreFantasia    String
-  razonSocial       String
-  cuit              String       @unique // 11 dígitos, sin guiones
-  condicionIva      CondicionIva
-  domicilioFiscal   String
+  // Datos fiscales: null en una empresa recién registrada; se completan en Configuración
+  // y son obligatorios para facturar (TenantsService.obtenerEmisorCompleto).
+  razonSocial       String?
+  cuit              String?      @unique // 11 dígitos, sin guiones
+  condicionIva      CondicionIva?
+  domicilioFiscal   String?
   ingresosBrutos    String?
   inicioActividades DateTime?    @db.Date
   ambienteArca      AmbienteArca @default(HOMOLOGACION)
@@ -214,7 +216,7 @@ model Usuario {
   passwordHash String? // null = solo entra por token de acceso de integración (Fase 4)
   activo       Boolean   @default(true)
   tokenVersion Int       @default(0) // incrementar invalida todas sus sesiones JWT
-  creadoPor    String    @default("script") // script | integracion:<id>
+  creadoPor    String    @default("script") // script | registro | integracion:<id>
   ultimoAcceso DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

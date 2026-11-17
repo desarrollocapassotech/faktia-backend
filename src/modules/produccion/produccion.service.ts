@@ -50,7 +50,7 @@ export class ProduccionService {
     if (obligatoriosSinArca.length) {
       throw new BadRequestException(`Antes de probar la conexión: ${obligatoriosSinArca.map((c) => c.mensaje).join(' ')}`);
     }
-    const emisor = await this.tenants.obtenerEmisor(tenantId);
+    const emisor = await this.tenants.obtenerEmisorCompleto(tenantId);
     const tipo = emisor.condicionIva === 'RESPONSABLE_INSCRIPTO' ? TIPO_PRUEBA.RESPONSABLE_INSCRIPTO : TIPO_PRUEBA.OTRO;
     const cred = await this.credenciales.paraAmbiente(tenantId, 'PRODUCCION');
     const resultados: Array<{ puntoVenta: number; ok: boolean; ultimoAutorizado?: number; error?: string }> = [];

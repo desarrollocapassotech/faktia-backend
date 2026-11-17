@@ -25,6 +25,12 @@ export class ActualizarEmisorDto {
   @MaxLength(200)
   razonSocial?: string;
 
+  /** Se carga una sola vez (las empresas registradas por autoservicio nacen sin CUIT). */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}-?\d{8}-?\d$/, { message: 'El CUIT tiene que tener 11 dígitos (con o sin guiones).' })
+  cuit?: string;
+
   @IsOptional()
   @IsEnum(CondicionIva)
   condicionIva?: CondicionIva;

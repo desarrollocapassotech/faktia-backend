@@ -13,8 +13,18 @@ import { hashPassword } from './modules/auth/password';
 import { sha256Hex } from './modules/auth/claves';
 import { PrismaService } from './shared/prisma/prisma.service';
 import { cuitDePrueba } from './shared/testing/datos';
+import { esCuitValido } from './shared/util/cuit';
 
 const PASSWORD = 'clave-de-prueba-e2e-1';
+
+/** CUIT aleatorio con dígito verificador correcto (PATCH /configuracion/emisor lo valida). */
+function cuitValidoDePrueba(): string {
+  // Algunas bases no tienen dígito válido (el verificador daría 10): se prueba con otra.
+  for (;;) {
+    const base = cuitDePrueba().slice(0, 10);
+    for (let d = 0; d <= 9; d++) if (esCuitValido(`${base}${d}`)) return `${base}${d}`;
+  }
+}
 
 const hayBase = Boolean(process.env.DATABASE_URL);
 (hayBase ? describe : describe.skip)('Aislamiento entre tenants (e2e)', () => {
@@ -213,6 +223,45 @@ const hayBase = Boolean(process.env.DATABASE_URL);
       if (idsA.some((id) => v1.body.includes(id))) filtrados.push(ruta);
     }
     expect(filtrados).toEqual([]);
+  });
+
+  it('una empresa recién registrada por /auth/registro no ve ni toca nada de A', async () => {
+    const email = `registro-${randomUUID().slice(0, 8)}@e2e.test`;
+    const reg = await http('POST', '/auth/registro', { body: { nombreEmpresa: 'E2E Registro', email, password: PASSWORD } });
+    expect(reg.status).toBe(201);
+    const sesion = JSON.parse(reg.body) as { accessToken: string; tenant: { id: string } };
+    tenants.push(sesion.tenant.id);
+    const token = sesion.accessToken;
+
+    // Mismo email otra vez: no crea una segunda empresa.
+    expect((await http('POST', '/auth/registro', { body: { nombreEmpresa: 'Otra', email, password: PASSWORD } })).status).toBe(409);
+    // Puede volver a entrar con su contraseña.
+    expect((await http('POST', '/auth/login', { body: { email, password: PASSWORD } })).status).toBe(200);
+
+    const me = JSON.parse((await http('GET', '/auth/me', { token })).body) as { tenant: { datosFiscalesCompletos: boolean } };
+    expect(me.tenant.datosFiscalesCompletos).toBe(false);
+
+    const pasaron: string[] = [];
+    for (const [metodo, ruta, body] of conSesion()) {
+      const r = await http(metodo, ruta, { token, body });
+      if (r.status < 400) pasaron.push(`${metodo} ${ruta} → ${r.status}`);
+    }
+    expect(pasaron).toEqual([]);
+
+    const idsA = Object.values(a);
+    for (const ruta of ['/clientes', '/comprobantes', '/importaciones', '/configuracion/puntos-venta', '/configuracion/emisor']) {
+      const r = await http('GET', ruta, { token });
+      expect(r.status).toBe(200);
+      expect(idsA.some((id) => r.body.includes(id))).toBe(false);
+    }
+
+    // Completa los datos fiscales en Configuración (paso posterior al registro).
+    const emisor = await http('PATCH', '/configuracion/emisor', {
+      token,
+      body: { razonSocial: 'E2E Registro SA', cuit: cuitValidoDePrueba(), condicionIva: 'MONOTRIBUTO', domicilioFiscal: 'Calle 2' },
+    });
+    expect(emisor.status).toBe(200);
+    expect(JSON.parse(emisor.body)).toMatchObject({ datosFiscalesCompletos: true });
   });
 
   it('los datos de A quedaron intactos', async () => {

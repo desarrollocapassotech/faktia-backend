@@ -1712,6 +1712,19 @@
           "condicionIva": {
             "type": "string"
           },
+          "domicilioFiscal": {
+            "type": "string"
+          },
+          "ingresosBrutos": {
+            "type": "string",
+            "nullable": true,
+            "description": "Número de Ingresos Brutos (o \"Exento\"), si está cargado."
+          },
+          "inicioActividades": {
+            "type": "string",
+            "nullable": true,
+            "description": "YYYY-MM-DD, si está cargado."
+          },
           "ambiente": {
             "type": "string",
             "description": "HOMOLOGACION (sin validez fiscal) o PRODUCCION."
@@ -1722,6 +1735,9 @@
           "nombreFantasia",
           "cuit",
           "condicionIva",
+          "domicilioFiscal",
+          "ingresosBrutos",
+          "inicioActividades",
           "ambiente"
         ]
       },

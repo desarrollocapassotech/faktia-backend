@@ -100,7 +100,8 @@ export class V1Controller {
   @ApiKey('comprobantes:read')
   @Get('configuracion')
   async configuracion(@CurrentAuth() auth: AuthContext): Promise<ConfiguracionPublicaDto> {
-    const emisor = await this.tenants.obtenerEmisor(auth.tenantId);
+    // Con datos fiscales incompletos responde 400: el contrato público siempre los trae.
+    const emisor = await this.tenants.obtenerEmisorCompleto(auth.tenantId);
     await this.tenants.asegurarPuntoVentaHomologacion(auth.tenantId, emisor.ambienteArca);
     const puntosVenta = await this.tenants.listarPuntosVenta(auth.tenantId);
     return configuracionPublica({ emisor, puntosVenta });
