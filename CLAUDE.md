@@ -84,6 +84,10 @@ Arquitectura en `../ARCHITECTURE.md` (módulos §4, flujos §8, seguridad §9, d
   - El de homologación es ficticio: faltan personas reales y las que aparecen tienen datos alterados. No sirve para validar ni para autocompletar.
   - Por eso `arca/PadronService` consulta el padrón de producción con un certificado de plataforma (`PADRON_*`), igual que Vialto (`core/padron`), y no con el de cada empresa.
   - Lo usan el emisor (`PadronEmisorService`) y "Buscar en padrón" de clientes. Sin `PADRON_*`, clientes consulta con las credenciales de la empresa.
+  - Campos del emisor que vienen de ARCA:
+    - Al cargar el CUIT, razón social, condición IVA y domicilio se toman del padrón y quedan en `Tenant.camposDeArca`. Esos campos ya no se editan: `actualizarEmisor` responde 400 si cambian.
+    - Las empresas que cargaron el CUIT antes se sincronizan con `POST /configuracion/emisor/sincronizar-arca`, que bloquea solo lo que coincide con ARCA y no pisa nada.
+  - La constancia no trae el inicio de actividades: se sugiere el alta del impuesto más antiguo, editable.
   - Tiene caché de 7 días por CUIT y un tope de 100 consultas reales por tenant por día, los dos en memoria.
   - Nunca bloquea la carga: si está caído o sin configurar, responde 503 y se completa a mano.
 - **ARCA:**

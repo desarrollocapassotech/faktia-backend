@@ -125,6 +125,10 @@ model Tenant {
   domicilioFiscal   String?
   ingresosBrutos    String?
   inicioActividades DateTime?    @db.Date
+  // Campos del emisor que salieron del padrón de ARCA ("razonSocial" | "condicionIva" |
+  // "domicilioFiscal"): no se editan a mano (PadronEmisorService).
+  camposDeArca       String[]     @default([])
+  padronVerificadoEn DateTime?
   ambienteArca      AmbienteArca @default(HOMOLOGACION)
   activo            Boolean      @default(true)
   createdAt         DateTime     @default(now())

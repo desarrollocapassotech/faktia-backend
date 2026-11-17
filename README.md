@@ -53,6 +53,7 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET / PATCH | `/api/configuracion/emisor` | Datos fiscales del emisor. El CUIT se carga una sola vez y, con el padrón configurado, se verifica al guardarlo (`404` si no existe; si ARCA no responde, se acepta). El GET incluye `padronDisponible`. El ambiente no se cambia desde acá |
+| POST | `/api/configuracion/emisor/sincronizar-arca` | Con el CUIT ya guardado: bloquea (`camposDeArca`) los datos que coinciden con el padrón, sin pisar nada, y devuelve el inicio de actividades sugerido |
 | GET | `/api/configuracion/emisor/padron/:cuit` | Constancia de inscripción del CUIT (razón social, domicilio, condición IVA) para autocompletar el emisor. `503` si el padrón no está configurado o ARCA no responde, `429` por el tope diario |
 | GET | `/api/configuracion/arca` | Ambiente, CUIT con el que se emite (real o de prueba), certificado vigente y si AfipSDK está configurado |
 | GET / POST | `/api/configuracion/puntos-venta` | Listar / crear `{ numero, ambiente, descripcion? }` |

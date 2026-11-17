@@ -29,9 +29,21 @@ export interface EmisorDatos {
   ingresosBrutos: string | null;
   inicioActividades: Date | null;
   ambienteArca: AmbienteArca;
+  /** Campos que salieron del padrón de ARCA: no se editan a mano. */
+  camposDeArca: CampoArca[];
   /** true cuando razón social, CUIT, condición IVA y domicilio están cargados (alcanza para facturar). */
   datosFiscalesCompletos: boolean;
 }
+
+/** Datos del emisor que se pueden completar desde el padrón de ARCA (y entonces quedan bloqueados). */
+export type CampoArca = 'razonSocial' | 'condicionIva' | 'domicilioFiscal';
+export const CAMPOS_ARCA: CampoArca[] = ['razonSocial', 'condicionIva', 'domicilioFiscal'];
+const NOMBRE_CAMPO_ARCA: Record<CampoArca, string> = {
+  razonSocial: 'La razón social',
+  condicionIva: 'La condición frente al IVA',
+  domicilioFiscal: 'El domicilio fiscal',
+};
+export type DatosDeArca = Partial<{ razonSocial: string; condicionIva: CondicionIva; domicilioFiscal: string }>;
 
 /** Emisor con los datos fiscales obligatorios: lo que necesita todo lo que factura o arma documentos. */
 export type EmisorCompleto = EmisorDatos & {
@@ -86,6 +98,7 @@ export class TenantsService {
       ingresosBrutos: t.ingresosBrutos,
       inicioActividades: t.inicioActividades,
       ambienteArca: t.ambienteArca,
+      camposDeArca: t.camposDeArca.filter((c): c is CampoArca => (CAMPOS_ARCA as string[]).includes(c)),
       datosFiscalesCompletos: Boolean(t.razonSocial?.trim() && t.cuit && t.condicionIva && t.domicilioFiscal?.trim()),
     };
   }
@@ -97,20 +110,40 @@ export class TenantsService {
     return emisor;
   }
 
-  async actualizarEmisor(tenantId: string, dto: ActualizarEmisorDto): Promise<EmisorDatos> {
+  /**
+   * `deArca`: datos del padrón para el CUIT que se está cargando. Pisan lo que venga en el dto y
+   * esos campos quedan bloqueados (`camposDeArca`). Un campo bloqueado no se puede cambiar después.
+   */
+  async actualizarEmisor(tenantId: string, dto: ActualizarEmisorDto, deArca?: DatosDeArca): Promise<EmisorDatos> {
+    const actual = await this.obtenerEmisor(tenantId);
     let cuit: string | undefined;
     if (dto.cuit !== undefined) {
       cuit = normalizarCuit(dto.cuit);
       if (!esCuitValido(cuit)) throw new BadRequestException(`El CUIT ${dto.cuit} no es válido (revisá el dígito verificador).`);
-      const actual = await this.obtenerEmisor(tenantId);
       // El CUIT se carga una sola vez: cambiarlo después dejaría comprobantes y certificados de otro CUIT.
       if (actual.cuit && actual.cuit !== cuit) {
         throw new BadRequestException('El CUIT de la empresa ya está cargado y no se puede cambiar. Escribinos si necesitás corregirlo.');
       }
       if (actual.cuit === cuit) cuit = undefined;
     }
+
+    for (const campo of actual.camposDeArca) {
+      const nuevo = dto[campo];
+      if (nuevo !== undefined && String(nuevo).trim() !== String(actual[campo] ?? '').trim()) {
+        throw new BadRequestException(`${NOMBRE_CAMPO_ARCA[campo]} se completó con lo registrado en ARCA y no se puede editar.`);
+      }
+    }
+
+    const datos: ActualizarEmisorDto = { ...dto };
+    let camposDeArca: CampoArca[] | undefined;
+    if (deArca) {
+      const nuevos = CAMPOS_ARCA.filter((c) => deArca[c]);
+      for (const c of nuevos) Object.assign(datos, { [c]: deArca[c] });
+      camposDeArca = [...new Set([...actual.camposDeArca, ...nuevos])];
+    }
+
     try {
-      await this.actualizarDatosEmisor(tenantId, dto, cuit);
+      await this.actualizarDatosEmisor(tenantId, datos, cuit, camposDeArca);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new ConflictException('Ya hay otra empresa registrada con ese CUIT.');
@@ -120,11 +153,25 @@ export class TenantsService {
     return this.obtenerEmisor(tenantId);
   }
 
-  private async actualizarDatosEmisor(tenantId: string, dto: ActualizarEmisorDto, cuit: string | undefined) {
+  /** Bloquea campos que ya están cargados y coinciden con ARCA (empresas que cargaron el CUIT antes). */
+  async marcarCamposDeArca(tenantId: string, campos: CampoArca[]): Promise<CampoArca[]> {
+    const actual = await this.obtenerEmisor(tenantId);
+    const camposDeArca = [...new Set([...actual.camposDeArca, ...campos])];
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: { camposDeArca, padronVerificadoEn: new Date() } });
+    return camposDeArca;
+  }
+
+  private async actualizarDatosEmisor(
+    tenantId: string,
+    dto: ActualizarEmisorDto,
+    cuit: string | undefined,
+    camposDeArca: CampoArca[] | undefined,
+  ) {
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
         cuit,
+        ...(camposDeArca ? { camposDeArca, padronVerificadoEn: new Date() } : {}),
         nombreFantasia: dto.nombreFantasia?.trim(),
         razonSocial: dto.razonSocial?.trim(),
         condicionIva: dto.condicionIva,

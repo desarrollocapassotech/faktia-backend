@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -41,11 +42,20 @@ export class TenantsController {
 
   @Patch('emisor')
   async actualizarEmisor(@CurrentAuth() auth: AuthContext, @Body() dto: ActualizarEmisorDto) {
-    // El CUIT se carga una sola vez: en ese momento se confirma que exista en ARCA.
-    if (dto.cuit !== undefined && !(await this.tenants.obtenerEmisor(auth.tenantId)).cuit) {
-      await this.padron.verificarExiste(auth.tenantId, dto.cuit);
-    }
-    return this.tenants.actualizarEmisor(auth.tenantId, dto);
+    // El CUIT se carga una sola vez: en ese momento se valida en ARCA y razón social, condición IVA
+    // y domicilio se toman del padrón (y quedan bloqueados).
+    const deArca =
+      dto.cuit !== undefined && !(await this.tenants.obtenerEmisor(auth.tenantId)).cuit
+        ? await this.padron.datosParaAlta(auth.tenantId, dto.cuit)
+        : undefined;
+    return this.tenants.actualizarEmisor(auth.tenantId, dto, deArca);
+  }
+
+  /** Empresa con CUIT ya guardado: bloquea lo que coincide con ARCA y sugiere el inicio de actividades. */
+  @Post('emisor/sincronizar-arca')
+  @HttpCode(200)
+  sincronizarArca(@CurrentAuth() auth: AuthContext) {
+    return this.padron.sincronizar(auth.tenantId);
   }
 
   /** Datos de la constancia de inscripción, para autocompletar el emisor al cargar el CUIT. */
