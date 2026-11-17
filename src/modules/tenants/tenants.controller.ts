@@ -34,8 +34,9 @@ export class TenantsController {
   ) {}
 
   @Get('emisor')
-  emisor(@CurrentAuth() auth: AuthContext) {
-    return this.tenants.obtenerEmisor(auth.tenantId);
+  async emisor(@CurrentAuth() auth: AuthContext) {
+    // padronDisponible: si al cargar el CUIT se puede validar y autocompletar con el padrón real de ARCA.
+    return { ...(await this.tenants.obtenerEmisor(auth.tenantId)), padronDisponible: this.padron.disponible() };
   }
 
   @Patch('emisor')

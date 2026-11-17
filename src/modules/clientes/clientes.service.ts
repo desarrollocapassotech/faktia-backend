@@ -9,7 +9,7 @@ import {
 import { Prisma, type Cliente, type OrigenItem, type TipoDocumento } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { esCuitValido, normalizarCuit } from '../../shared/util/cuit';
-import { ARCA_GATEWAY, ArcaError, type ArcaGateway } from '../arca';
+import { ARCA_GATEWAY, ArcaError, PadronService, type ArcaGateway } from '../arca';
 import { CredencialesArcaProvider } from '../tenants';
 import { normalizarDocumento } from './documento';
 import { ActualizarClienteDto, CrearClienteDto, ListarClientesQuery } from './dto/clientes.dto';
@@ -20,6 +20,7 @@ export class ClientesService {
     private readonly prisma: PrismaService,
     private readonly credenciales: CredencialesArcaProvider,
     @Inject(ARCA_GATEWAY) private readonly arca: ArcaGateway,
+    private readonly padron: PadronService,
   ) {}
 
   listar(tenantId: string, query: ListarClientesQuery) {
@@ -97,10 +98,25 @@ export class ClientesService {
     );
   }
 
-  /** Consulta la constancia de inscripción en ARCA. Si no está disponible, lo informa sin romper. */
+  /**
+   * Consulta la constancia de inscripción en ARCA. Con el padrón de plataforma configurado
+   * (PADRON_*) usa datos reales para todas las empresas; si no, consulta con las credenciales de la
+   * empresa (en homologación ese padrón es ficticio).
+   */
   async consultarPadron(tenantId: string, cuitCrudo: string) {
     const cuit = normalizarCuit(cuitCrudo);
     if (!esCuitValido(cuit)) throw new BadRequestException('El CUIT no es válido.');
+    if (this.padron.configurado()) {
+      const datos = await this.padron.consultar(cuit, tenantId);
+      if (!datos) throw new NotFoundException('ARCA no tiene datos para ese CUIT.');
+      return {
+        cuit: datos.cuit,
+        razonSocial: datos.razonSocial,
+        domicilio: datos.domicilio,
+        condicionIva: datos.condicionIva,
+        ambiente: 'PRODUCCION' as const,
+      };
+    }
     const cred = await this.credenciales.obtener(tenantId);
     try {
       const datos = await this.arca.consultarPadron(cred, cuit);

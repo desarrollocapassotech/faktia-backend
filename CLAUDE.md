@@ -80,6 +80,12 @@ Arquitectura en `../ARCHITECTURE.md` (módulos §4, flujos §8, seguridad §9, d
   - Los tests de integración y e2e corren contra esa base cuando `DATABASE_URL` está definida, y se saltean si no lo está. Crean empresas `E2E …` y las borran en el `afterAll`. Un test cortado a la mitad puede dejar restos.
   - Para correr solo los unitarios: `env -u DATABASE_URL node node_modules/jest/bin/jest.js --ci`.
   - Las migraciones se escriben a mano en `prisma/migrations/` y se aplican con `npx prisma migrate deploy`, **siempre con el OK del usuario**. Nunca usar `prisma migrate dev`, porque puede pedir resetear la base. Tienen que ser compatibles con el código desplegado (agregar o relajar, no romper).
+- **Padrón de ARCA:**
+  - El de homologación es ficticio: faltan personas reales y las que aparecen tienen datos alterados. No sirve para validar ni para autocompletar.
+  - Por eso `arca/PadronService` consulta el padrón de producción con un certificado de plataforma (`PADRON_*`), igual que Vialto (`core/padron`), y no con el de cada empresa.
+  - Lo usan el emisor (`PadronEmisorService`) y "Buscar en padrón" de clientes. Sin `PADRON_*`, clientes consulta con las credenciales de la empresa.
+  - Tiene caché de 7 días por CUIT y un tope de 100 consultas reales por tenant por día, los dos en memoria.
+  - Nunca bloquea la carga: si está caído o sin configurar, responde 503 y se completa a mano.
 - **ARCA:**
   - Concepto servicios exige FchServDesde, FchServHasta y FchVtoPago (error 10049).
   - `cms.sign.invalid` significa certificado y clave que no son pareja.

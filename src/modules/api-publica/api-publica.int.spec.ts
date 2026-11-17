@@ -107,7 +107,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     } as unknown as CredencialesArcaProvider;
     const arca = new ArcaOk();
     const tenants = new TenantsService(prisma);
-    const clientes = new ClientesService(prisma, cred, arca);
+    const clientes = new ClientesService(prisma, cred, arca, { configurado: () => false } as never); // sin padrón de plataforma
     const items = new ItemsFacturablesService(prisma);
     comprobantes = new ComprobantesService(prisma, clientes, tenants, items);
     emision = new EmisionService(prisma, comprobantes, tenants, cred, arca, items, eventos);

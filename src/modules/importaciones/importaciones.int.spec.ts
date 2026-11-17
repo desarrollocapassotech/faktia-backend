@@ -95,7 +95,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     const arca = new ArcaOk();
     const tenants = new TenantsService(prisma);
     tarifas = new TarifasService(prisma);
-    const clientes = new ClientesService(prisma, cred, arca);
+    const clientes = new ClientesService(prisma, cred, arca, { configurado: () => false } as never); // sin padrón de plataforma
     const items = new ItemsFacturablesService(prisma);
     const staging = new StagingService(prisma, clientes, tarifas);
     const plantillas = new PlantillasMapeoService(prisma);

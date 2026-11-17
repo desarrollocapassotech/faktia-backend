@@ -63,6 +63,11 @@ export interface DatosPadron {
   razonSocial: string;
   domicilio: string | null;
   condicionIva: 'RESPONSABLE_INSCRIPTO' | 'MONOTRIBUTO' | 'EXENTO' | null;
+  /**
+   * "AAAA-MM-01" del alta del impuesto más antiguo. La constancia no trae la fecha de inicio de
+   * actividades: es una aproximación para sugerir, no un dato para dar por cierto.
+   */
+  inicioActividadesSugerido?: string | null;
   crudo: unknown;
 }
 

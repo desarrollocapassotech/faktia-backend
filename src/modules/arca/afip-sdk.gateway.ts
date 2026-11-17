@@ -221,5 +221,18 @@ export function mapearPadron(cuit: string, r: Obj): DatosPadron {
     else if (ids.includes(32)) condicionIva = 'EXENTO';
   }
 
-  return { cuit, razonSocial: razonSocial || '', domicilio, condicionIva, crudo: r };
+  return { cuit, razonSocial: razonSocial || '', domicilio, condicionIva, inicioActividadesSugerido: altaMasAntigua(r), crudo: r };
+}
+
+/** Período (AAAAMM) de alta del impuesto más antiguo, como "AAAA-MM-01". */
+function altaMasAntigua(r: Obj): string | null {
+  const impuestos = [
+    ...asArray(((r.datosRegimenGeneral ?? {}) as Obj).impuesto as Obj | Obj[]),
+    ...asArray(((r.datosMonotributo ?? {}) as Obj).impuesto as Obj | Obj[]),
+  ];
+  const periodos = impuestos
+    .map((i) => String(i.periodo ?? '').slice(0, 6))
+    .filter((p) => /^\d{6}$/.test(p) && Number(p.slice(0, 4)) >= 1900 && Number(p.slice(4)) >= 1 && Number(p.slice(4)) <= 12)
+    .sort();
+  return periodos[0] ? `${periodos[0].slice(0, 4)}-${periodos[0].slice(4)}-01` : null;
 }
