@@ -11,6 +11,7 @@ import type { AddressInfo } from 'net';
 import { AppModule } from './app.module';
 import { hashPassword } from './modules/auth/password';
 import { sha256Hex } from './modules/auth/claves';
+import { PadronEmisorService } from './modules/tenants/padron-emisor.service';
 import { PrismaService } from './shared/prisma/prisma.service';
 import { cuitDePrueba } from './shared/testing/datos';
 import { esCuitValido } from './shared/util/cuit';
@@ -73,6 +74,8 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     app = await NestFactory.create(AppModule, { logger: false });
     app.setGlobalPrefix('api');
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    // Los CUIT de prueba son inventados: no consultar el padrón real de ARCA al guardarlos.
+    jest.spyOn(app.get(PadronEmisorService), 'verificarExiste').mockResolvedValue();
     await app.listen(0, '127.0.0.1');
     base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api`;
 

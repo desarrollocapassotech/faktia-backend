@@ -52,7 +52,8 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET / PATCH | `/api/configuracion/emisor` | Datos fiscales del emisor. El CUIT y el ambiente no se cambian desde acá |
+| GET / PATCH | `/api/configuracion/emisor` | Datos fiscales del emisor. El CUIT se carga una sola vez. En producción, al guardarlo se verifica en el padrón de ARCA (`404` si no existe; si ARCA no responde, se acepta). En homologación no, porque ese padrón es ficticio. El ambiente no se cambia desde acá |
+| GET | `/api/configuracion/emisor/padron/:cuit` | Solo en producción: constancia de inscripción del CUIT de la empresa (razón social, domicilio, condición IVA) para autocompletar el emisor. En homologación da `400` |
 | GET | `/api/configuracion/arca` | Ambiente, CUIT con el que se emite (real o de prueba), certificado vigente y si AfipSDK está configurado |
 | GET / POST | `/api/configuracion/puntos-venta` | Listar / crear `{ numero, ambiente, descripcion? }` |
 | PATCH | `/api/configuracion/puntos-venta/:id` | `{ descripcion?, activo? }` |

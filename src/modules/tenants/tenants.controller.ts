@@ -22,12 +22,14 @@ import {
   CargarCertificadoDto,
   CrearPuntoVentaDto,
 } from './dto/tenants.dto';
+import { PadronEmisorService } from './padron-emisor.service';
 import { TenantsService } from './tenants.service';
 
 @Controller('configuracion')
 export class TenantsController {
   constructor(
     private readonly tenants: TenantsService,
+    private readonly padron: PadronEmisorService,
     private readonly config: ConfigService,
   ) {}
 
@@ -37,8 +39,18 @@ export class TenantsController {
   }
 
   @Patch('emisor')
-  actualizarEmisor(@CurrentAuth() auth: AuthContext, @Body() dto: ActualizarEmisorDto) {
+  async actualizarEmisor(@CurrentAuth() auth: AuthContext, @Body() dto: ActualizarEmisorDto) {
+    // El CUIT se carga una sola vez: en ese momento se confirma que exista en ARCA.
+    if (dto.cuit !== undefined && !(await this.tenants.obtenerEmisor(auth.tenantId)).cuit) {
+      await this.padron.verificarExiste(auth.tenantId, dto.cuit);
+    }
     return this.tenants.actualizarEmisor(auth.tenantId, dto);
+  }
+
+  /** Datos de la constancia de inscripción, para autocompletar el emisor al cargar el CUIT. */
+  @Get('emisor/padron/:cuit')
+  padronEmisor(@CurrentAuth() auth: AuthContext, @Param('cuit') cuit: string) {
+    return this.padron.consultar(auth.tenantId, cuit);
   }
 
   @Get('arca')
