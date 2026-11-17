@@ -285,4 +285,26 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     expect(imp.estado).toBe('EN_STAGING');
     expect(await prisma.comprobante.count({ where: { tenantId: { in: tenants.slice(1) } } })).toBe(0);
   });
+
+  // Va último: cambiar la contraseña invalida tokenB.
+  it('perfil y contraseña solo tocan al usuario de la sesión', async () => {
+    const usuarioA = await prisma.usuario.findFirstOrThrow({ where: { tenantId: tenants[0] } });
+
+    // La API key no sirve para estas rutas.
+    expect((await http('PATCH', '/auth/me', { key: keyB, body: { nombre: 'X' } })).status).toBe(401);
+
+    const perfil = await http('PATCH', '/auth/me', { token: tokenB, body: { nombre: 'Usuario B' } });
+    expect(perfil.status).toBe(200);
+    expect(JSON.parse(perfil.body)).toMatchObject({ usuario: { nombre: 'Usuario B', tienePassword: true } });
+
+    const cambio = await http('POST', '/auth/password', { token: tokenB, body: { passwordActual: PASSWORD, passwordNueva: 'otra-clave-e2e-123' } });
+    expect(cambio.status).toBe(200);
+    // La sesión vieja quedó revocada; la nueva funciona.
+    expect((await http('GET', '/auth/me', { token: tokenB })).status).toBe(401);
+    const nuevo = (JSON.parse(cambio.body) as { accessToken: string }).accessToken;
+    expect((await http('GET', '/auth/me', { token: nuevo })).status).toBe(200);
+
+    const usuarioADespues = await prisma.usuario.findUniqueOrThrow({ where: { id: usuarioA.id } });
+    expect(usuarioADespues).toMatchObject({ nombre: usuarioA.nombre, passwordHash: usuarioA.passwordHash, tokenVersion: usuarioA.tokenVersion });
+  });
 });

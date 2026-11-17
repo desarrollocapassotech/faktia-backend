@@ -14,7 +14,7 @@ npm run start:dev           # http://localhost:3000/api
 
 Si `start:dev` se cuelga después de "Found 0 errors" (pasa con la extensión Console Ninja de VS Code), usar `npm run build && npm run start:prod`.
 
-Base de datos: proyecto Neon `facturador`, ramas `develop` (desarrollo) y `production`.
+Base de datos: proyecto Neon `facturador`, una sola rama (`production`). No hay QA ni desarrollo: los tests de integración corren contra esa base si `DATABASE_URL` está definida.
 
 ## Crear tenants y usuarios
 
@@ -39,7 +39,10 @@ Volver a correr `crear-usuario` con un email existente le asigna la contraseña 
 |---|---|---|---|
 | GET | `/api/health` | pública | Estado del servidor y de la base |
 | POST | `/api/auth/login` | pública (5 intentos/min por IP) | `{ email, password, tenantSlug? }` → `{ accessToken, usuario, tenant }`. `409` con `tenants[]` si el email existe en varias empresas |
-| GET | `/api/auth/me` | Bearer | Usuario y tenant de la sesión |
+| POST | `/api/auth/registro` | pública (10/h por IP) | `{ nombreEmpresa, email, password }` → crea empresa y usuario, devuelve la sesión |
+| GET | `/api/auth/me` | Bearer | Usuario (con `tienePassword`) y tenant de la sesión |
+| PATCH | `/api/auth/me` | Bearer | `{ nombre }`: nombre visible del usuario (vacío lo borra) |
+| POST | `/api/auth/password` | Bearer (5/min) | `{ passwordActual?, passwordNueva }`. La actual es obligatoria si ya tiene una. Cierra todas las sesiones y devuelve una nueva |
 
 ## Endpoints (Fase 2)
 

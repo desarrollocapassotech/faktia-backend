@@ -31,7 +31,10 @@ function crearPrismaFake(usuarios: UsuarioFake[]) {
             (!where.tenant.slug || u.tenant.slug === where.tenant.slug),
         ),
       ),
-      findFirst: jest.fn(async ({ where }) => usuarios.find((u) => u.email === where.email) ?? null),
+      findFirst: jest.fn(
+        async ({ where }) =>
+          usuarios.find((u) => u.email === where.email && (where.passwordHash === undefined || u.passwordHash !== null)) ?? null,
+      ),
       create: jest.fn(async ({ data }) => {
         const slug = data.tenant.create.slug as string;
         if (usuarios.some((u) => u.tenant.slug === slug)) {
@@ -55,12 +58,28 @@ function crearPrismaFake(usuarios: UsuarioFake[]) {
         usuarios.push(nuevo);
         return { id: nuevo.id, tenantId: nuevo.tenantId };
       }),
-      update: jest.fn(async () => ({})),
+      update: jest.fn(async ({ where, data }) => {
+        const u = usuarios.find((x) =>
+          where.tenantId_id ? x.id === where.tenantId_id.id && x.tenantId === where.tenantId_id.tenantId : x.id === where.id,
+        );
+        if (!u) throw new Error('no existe');
+        if ('nombre' in data) u.nombre = data.nombre;
+        if ('passwordHash' in data) u.passwordHash = data.passwordHash;
+        if (data.tokenVersion?.increment) u.tokenVersion += data.tokenVersion.increment;
+        return u;
+      }),
       findUnique: jest.fn(async ({ where }) => {
         const u = usuarios.find(
           (x) => x.id === where.tenantId_id.id && x.tenantId === where.tenantId_id.tenantId,
         );
         return u ?? null;
+      }),
+      findUniqueOrThrow: jest.fn(async ({ where }) => {
+        const u = usuarios.find(
+          (x) => x.id === where.tenantId_id.id && x.tenantId === where.tenantId_id.tenantId,
+        );
+        if (!u) throw new Error('no existe');
+        return u;
       }),
     },
   } as unknown as PrismaService;
@@ -161,10 +180,68 @@ describe('AuthService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('deja registrarse a un email que solo existe como usuario de integración (sin contraseña)', async () => {
+      const usuarios = [usuario({ passwordHash: null })];
+      const service = new AuthService(crearPrismaFake(usuarios), jwt);
+      const res = await service.registrar({ nombreEmpresa: 'Su Empresa', email: 'ana@empresa.com', password: 'una-clave-larga' });
+      expect(res.tenant.slug).toBe('su-empresa');
+
+      // El login con contraseña encuentra solo la empresa nueva (la otra no tiene contraseña).
+      const login = await service.login({ email: 'ana@empresa.com', password: 'una-clave-larga' });
+      expect(login.tenant.id).toBe(res.tenant.id);
+    });
+
     it('rechaza contraseñas cortas y nombres vacíos', async () => {
       const service = new AuthService(crearPrismaFake([]), jwt);
       await expect(service.registrar({ nombreEmpresa: 'X SA', email: 'a@b.com', password: 'corta' })).rejects.toThrow(BadRequestException);
       await expect(service.registrar({ nombreEmpresa: '   ', email: 'a@b.com', password: 'una-clave-larga' })).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('perfil', () => {
+    const sesion = { tenantId: 't1', tipo: 'usuario' as const, usuarioId: 'u1', scopes: [] };
+
+    it('actualiza el nombre (vacío lo borra)', async () => {
+      const usuarios = [usuario()];
+      const service = new AuthService(crearPrismaFake(usuarios), jwt);
+      await service.actualizarPerfil(sesion, { nombre: '  Ana Pérez ' });
+      expect(usuarios[0].nombre).toBe('Ana Pérez');
+      await service.actualizarPerfil(sesion, { nombre: '   ' });
+      expect(usuarios[0].nombre).toBeNull();
+    });
+
+    it('cambia la contraseña con la actual correcta, cierra las otras sesiones y devuelve una nueva', async () => {
+      const usuarios = [usuario()];
+      const service = new AuthService(crearPrismaFake(usuarios), jwt);
+      const vieja = await jwt.signAsync({ sub: 'u1', tid: 't1', tv: 0 });
+
+      const res = await service.cambiarPassword(sesion, { passwordActual: 'clave-correcta-123', passwordNueva: 'otra-clave-larga' });
+
+      await expect(service.validarSesion(vieja)).rejects.toThrow(UnauthorizedException);
+      await expect(service.validarSesion(res.accessToken)).resolves.toMatchObject({ usuarioId: 'u1' });
+      await expect(service.login({ email: 'ana@empresa.com', password: 'otra-clave-larga' })).resolves.toBeDefined();
+    });
+
+    it('rechaza el cambio si la contraseña actual falta o no coincide', async () => {
+      const service = new AuthService(crearPrismaFake([usuario()]), jwt);
+      await expect(service.cambiarPassword(sesion, { passwordNueva: 'otra-clave-larga' })).rejects.toThrow(BadRequestException);
+      await expect(
+        service.cambiarPassword(sesion, { passwordActual: 'equivocada-123', passwordNueva: 'otra-clave-larga' }),
+      ).rejects.toThrow('La contraseña actual no es correcta.');
+    });
+
+    it('un usuario de integración (sin contraseña) puede crear una sin pedir la actual', async () => {
+      const usuarios = [usuario({ passwordHash: null })];
+      const service = new AuthService(crearPrismaFake(usuarios), jwt);
+      expect((await service.perfil(sesion)).usuario.tienePassword).toBe(false);
+      await service.cambiarPassword(sesion, { passwordNueva: 'otra-clave-larga' });
+      expect((await service.perfil(sesion)).usuario.tienePassword).toBe(true);
+    });
+
+    it('no acepta el contexto de una API key', async () => {
+      const service = new AuthService(crearPrismaFake([usuario()]), jwt);
+      const integracion = { tenantId: 't1', tipo: 'integracion' as const, scopes: [] };
+      await expect(service.actualizarPerfil(integracion, { nombre: 'X' })).rejects.toThrow(UnauthorizedException);
     });
   });
 

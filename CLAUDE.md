@@ -24,10 +24,15 @@ Arquitectura en `../ARCHITECTURE.md` (módulos §4, flujos §8, seguridad §9, d
 - **`shared/` no conoce a los módulos.**
 - La comunicación asincrónica va por eventos (`comprobante.emitido`, `comprobante.rechazado`, `importacion.confirmada`); `comprobantes` no conoce a `api-publica`.
 - **Aislamiento de tenant:**
-  - FKs compuestas `(tenantId, id)`.
-  - `TenantContext` cargado por el guard.
-  - Extensión de Prisma que filtra por tenant y falla sin contexto.
-  - Test e2e de aislamiento. Todo endpoint nuevo tiene que entrar en ese test.
+  - FKs compuestas `(tenantId, id)`: la base no deja relacionar datos de dos empresas.
+  - El guard global (`AuthGuard`) arma el `AuthContext` desde el JWT (`tid`) o la API key. El `tenantId` sale **siempre** de ahí (`@CurrentAuth()`), nunca del body, la URL ni los query params.
+  - **El filtro es explícito:** cada método de servicio recibe `tenantId` y lo pone en cada `where` (`tenantId_id` en los `findUnique`, `{ tenantId, id }` en los `updateMany`/`deleteMany`). No hay `TenantContext` ni extensión de Prisma que filtre sola: una query sin `tenantId` lee datos de todas las empresas.
+  - Test e2e de aislamiento (`src/aislamiento-tenants.e2e.spec.ts`). Todo endpoint nuevo tiene que entrar en ese test.
+- **Alta de empresas:**
+  - Registro por autoservicio en `POST /auth/registro`. Crea la empresa y su primer usuario en un solo INSERT anidado desde `auth` (`auth` no puede importar `tenants` porque se formaría un ciclo).
+  - La empresa nace solo con `nombreFantasia`: razón social, CUIT, condición IVA y domicilio son `null` hasta que los cargue en Configuración. El CUIT se carga una sola vez.
+  - Todo lo que factura o arma documentos usa `TenantsService.obtenerEmisorCompleto()`, que falla con 400 si faltan esos datos. `obtenerEmisor()` devuelve los campos fiscales como nullables y se usa solo para mostrar o configurar.
+  - Todavía no hay roles: todos los usuarios de una empresa tienen los mismos permisos.
 - **Montos como string decimal** validado con regex y cálculo con `Decimal`. Nunca `number` para dinero.
 - `ValidationPipe` global con whitelist estricta: DTO en cada endpoint.
 - **Idempotencia:**
@@ -71,7 +76,10 @@ Arquitectura en `../ARCHITECTURE.md` (módulos §4, flujos §8, seguridad §9, d
 - **Console Ninja** (VS Code) parchea `node_modules` y cuelga Jest y `start:dev`.
   - Arreglo: `npm ci`.
   - Alternativas: `node node_modules/jest/bin/jest.js --ci` para los tests; `npm run build && node dist/main.js` para levantar el backend.
-- Tests de integración: cargar el `.env` antes; sin `DATABASE_URL` se saltean solos.
+- **Hay una sola base: la rama `production` del proyecto Neon `facturador`.** No hay QA ni desarrollo, y el `.env` local apunta ahí.
+  - Los tests de integración y e2e corren contra esa base cuando `DATABASE_URL` está definida, y se saltean si no lo está. Crean empresas `E2E …` y las borran en el `afterAll`. Un test cortado a la mitad puede dejar restos.
+  - Para correr solo los unitarios: `env -u DATABASE_URL node node_modules/jest/bin/jest.js --ci`.
+  - Las migraciones se escriben a mano en `prisma/migrations/` y se aplican con `npx prisma migrate deploy`, **siempre con el OK del usuario**. Nunca usar `prisma migrate dev`, porque puede pedir resetear la base. Tienen que ser compatibles con el código desplegado (agregar o relajar, no romper).
 - **ARCA:**
   - Concepto servicios exige FchServDesde, FchServHasta y FchVtoPago (error 10049).
   - `cms.sign.invalid` significa certificado y clave que no son pareja.

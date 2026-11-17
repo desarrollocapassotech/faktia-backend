@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { AuthContext, SesionJwtPayload } from './auth-context';
 import { LoginDto } from './dto/login.dto';
+import { ActualizarPerfilDto, CambiarPasswordDto } from './dto/perfil.dto';
 import { RegistroDto } from './dto/registro.dto';
 import { hashPassword, normalizarEmail, validarPassword, verificarPassword } from './password';
 
@@ -97,7 +98,10 @@ export class AuthService {
     const errorPassword = validarPassword(dto.password);
     if (errorPassword) throw new BadRequestException(errorPassword);
 
-    if (await this.prisma.usuario.findFirst({ where: { email }, select: { id: true } })) {
+    // Solo bloquea si ya puede entrar con contraseña. Los usuarios que creó una integración (entran
+    // por token de acceso, sin contraseña) pueden registrar su propia empresa: el login con
+    // contraseña solo va a encontrar la nueva.
+    if (await this.prisma.usuario.findFirst({ where: { email, passwordHash: { not: null } }, select: { id: true } })) {
       throw new ConflictException('Ya hay una cuenta con ese email. Ingresá con tu contraseña.');
     }
 
@@ -169,13 +173,55 @@ export class AuthService {
     return { tenantId: payload.tid, tipo: 'usuario', usuarioId: usuario.id, scopes: [] };
   }
 
+  /** Cambia el nombre visible del usuario de la sesión. */
+  async actualizarPerfil(auth: AuthContext, dto: ActualizarPerfilDto) {
+    const usuarioId = this.usuarioDeSesion(auth);
+    await this.prisma.usuario.update({
+      where: { tenantId_id: { tenantId: auth.tenantId, id: usuarioId } },
+      data: { nombre: dto.nombre.trim() || null },
+    });
+    return this.perfil(auth);
+  }
+
+  /**
+   * Cambia (o crea, si vino de una integración) la contraseña del usuario de la sesión.
+   * Cierra todas sus sesiones y devuelve una nueva para el navegador desde el que la cambió.
+   */
+  async cambiarPassword(auth: AuthContext, dto: CambiarPasswordDto): Promise<SesionResponse> {
+    const usuarioId = this.usuarioDeSesion(auth);
+    const errorPassword = validarPassword(dto.passwordNueva);
+    if (errorPassword) throw new BadRequestException(errorPassword);
+
+    const usuario = await this.prisma.usuario.findUniqueOrThrow({
+      where: { tenantId_id: { tenantId: auth.tenantId, id: usuarioId } },
+      select: { passwordHash: true },
+    });
+    if (usuario.passwordHash) {
+      if (!dto.passwordActual || !(await verificarPassword(dto.passwordActual, usuario.passwordHash))) {
+        throw new BadRequestException('La contraseña actual no es correcta.');
+      }
+    }
+
+    await this.prisma.usuario.update({
+      where: { tenantId_id: { tenantId: auth.tenantId, id: usuarioId } },
+      data: { passwordHash: await hashPassword(dto.passwordNueva), tokenVersion: { increment: 1 } },
+    });
+    return this.sesionPara(auth.tenantId, usuarioId);
+  }
+
+  private usuarioDeSesion(auth: AuthContext): string {
+    if (auth.tipo !== 'usuario' || !auth.usuarioId) throw new UnauthorizedException('Requiere la sesión de un usuario.');
+    return auth.usuarioId;
+  }
+
   async perfil(auth: AuthContext) {
     const usuario = await this.prisma.usuario.findUniqueOrThrow({
-      where: { tenantId_id: { tenantId: auth.tenantId, id: auth.usuarioId as string } },
+      where: { tenantId_id: { tenantId: auth.tenantId, id: this.usuarioDeSesion(auth) } },
       select: {
         id: true,
         email: true,
         nombre: true,
+        passwordHash: true,
         tenant: {
           select: {
             id: true,
@@ -192,7 +238,8 @@ export class AuthService {
     });
     const t = usuario.tenant;
     return {
-      usuario: { id: usuario.id, email: usuario.email, nombre: usuario.nombre },
+      // tienePassword: false en los usuarios que creó una integración (entran por token de acceso).
+      usuario: { id: usuario.id, email: usuario.email, nombre: usuario.nombre, tienePassword: usuario.passwordHash !== null },
       tenant: {
         id: t.id,
         slug: t.slug,
