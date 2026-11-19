@@ -19,6 +19,9 @@ import {
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 export const PERIODO = /^\d{4}-(0[1-9]|1[0-2])$/;
+export const NUMERO_BUSQUEDA = /^\s*\d{1,8}(\s*-\s*\d{1,8})?\s*$/;
+export const ORDENES_COMPROBANTES = ['comprobante', 'numero', 'fecha', 'cliente', 'total', 'estado'] as const;
+export type OrdenComprobantes = (typeof ORDENES_COMPROBANTES)[number];
 const aTexto = ({ value }: { value: unknown }) => (typeof value === 'number' ? String(value) : value);
 
 export class LineaDto {
@@ -215,6 +218,30 @@ export class ListarComprobantesQuery {
   @IsOptional()
   @Matches(PERIODO, { message: 'periodo debe tener formato YYYY-MM.' })
   periodo?: string;
+
+  /** "00002-00000015" / "2-15" (punto de venta y número) o solo el número ("15"). */
+  @IsOptional()
+  @Matches(NUMERO_BUSQUEDA, { message: 'numero debe ser un número, o punto de venta y número (00002-00000015).' })
+  numero?: string;
+
+  /** Fecha de emisión desde (inclusive), YYYY-MM-DD. */
+  @IsOptional()
+  @Matches(FECHA, { message: 'fechaDesde debe tener formato YYYY-MM-DD.' })
+  fechaDesde?: string;
+
+  /** Fecha de emisión hasta (inclusive), YYYY-MM-DD. */
+  @IsOptional()
+  @Matches(FECHA, { message: 'fechaHasta debe tener formato YYYY-MM-DD.' })
+  fechaHasta?: string;
+
+  /** Columna por la que se ordena. Sin esto: los más recientes primero. */
+  @IsOptional()
+  @IsIn(ORDENES_COMPROBANTES)
+  ordenarPor?: OrdenComprobantes;
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir?: 'asc' | 'desc';
 
   @IsOptional()
   @Type(() => Number)

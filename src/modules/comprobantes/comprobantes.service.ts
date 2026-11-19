@@ -22,6 +22,7 @@ import {
   GenerarBorradoresDto,
   LineaDto,
   ListarComprobantesQuery,
+  type OrdenComprobantes,
 } from './dto/comprobantes.dto';
 
 const EDITABLES = ['BORRADOR', 'RECHAZADO'] as const;
@@ -57,6 +58,39 @@ export function filtroPeriodo(periodo: string): Prisma.ComprobanteWhereInput {
     fechaServicioDesde: { lte: new Date(Date.UTC(anio, mes, 0)) },
     fechaServicioHasta: { gte: new Date(Date.UTC(anio, mes - 1, 1)) },
   };
+}
+
+/** "00002-00000015" o "2-15" → ese punto de venta y número; "15" → ese número en cualquier punto de venta. */
+export function filtroNumero(texto: string): Prisma.ComprobanteWhereInput {
+  const partes = texto.split('-').map((p) => Number(p.trim()));
+  return partes.length === 2 ? { puntoVenta: { numero: partes[0] }, numero: partes[1] } : { numero: partes[0] };
+}
+
+/**
+ * Orden del listado por columna. Los borradores (sin número) van al final en los dos sentidos;
+ * el estado ordena como el enum (borrador → emitido → anulado). Desempata por creación, más nuevo primero.
+ */
+export function ordenListado(
+  por: OrdenComprobantes | undefined,
+  dir: 'asc' | 'desc',
+): Prisma.ComprobanteOrderByWithRelationInput[] {
+  const desempate: Prisma.ComprobanteOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+  switch (por) {
+    case 'comprobante':
+      return [{ tipo: dir }, ...desempate];
+    case 'numero':
+      return [{ puntoVenta: { numero: dir } }, { numero: { sort: dir, nulls: 'last' } }, ...desempate];
+    case 'fecha':
+      return [{ fechaEmision: dir }, ...desempate];
+    case 'cliente':
+      return [{ cliente: { razonSocial: dir } }, ...desempate];
+    case 'total':
+      return [{ importeTotal: dir }, ...desempate];
+    case 'estado':
+      return [{ estado: dir }, ...desempate];
+    default:
+      return desempate;
+  }
 }
 
 function aYmd(d: Date | null): string | null {
@@ -134,12 +168,21 @@ export class ComprobantesService {
       ...(q.estado ? { estado: q.estado } : {}),
       ...(q.clienteId ? { clienteId: q.clienteId } : {}),
       ...(q.periodo ? filtroPeriodo(q.periodo) : {}),
+      ...(q.numero ? filtroNumero(q.numero) : {}),
+      ...(q.fechaDesde || q.fechaHasta
+        ? {
+            fechaEmision: {
+              ...(q.fechaDesde ? { gte: deYmdArca(q.fechaDesde) } : {}),
+              ...(q.fechaHasta ? { lte: deYmdArca(q.fechaHasta) } : {}),
+            },
+          }
+        : {}),
     };
     const [total, items] = await Promise.all([
       this.prisma.comprobante.count({ where }),
       this.prisma.comprobante.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }],
+        orderBy: ordenListado(q.ordenarPor, q.dir ?? 'asc'),
         skip: (pagina - 1) * porPagina,
         take: porPagina,
         select: {
