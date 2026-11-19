@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, type ConceptoArca, type Moneda, type TipoComprobante } from '@prisma/client';
+import { Prisma, TipoComprobante, type ConceptoArca, type Moneda } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { AuthContext } from '../auth';
 import { ClientesService } from '../clientes';
@@ -22,6 +22,7 @@ import {
   GenerarBorradoresDto,
   LineaDto,
   ListarComprobantesQuery,
+  type ClaseComprobante,
   type OrdenComprobantes,
 } from './dto/comprobantes.dto';
 
@@ -64,6 +65,11 @@ export function filtroPeriodo(periodo: string): Prisma.ComprobanteWhereInput {
 export function filtroNumero(texto: string): Prisma.ComprobanteWhereInput {
   const partes = texto.split('-').map((p) => Number(p.trim()));
   return partes.length === 2 ? { puntoVenta: { numero: partes[0] }, numero: partes[1] } : { numero: partes[0] };
+}
+
+/** FACTURA → FACTURA_A, FACTURA_B, FACTURA_C (y lo mismo con las notas). */
+export function tiposDeClase(clase: ClaseComprobante): TipoComprobante[] {
+  return Object.values(TipoComprobante).filter((t) => t.replace(/_[ABC]$/, '') === clase);
 }
 
 /**
@@ -169,6 +175,7 @@ export class ComprobantesService {
       ...(q.clienteId ? { clienteId: q.clienteId } : {}),
       ...(q.periodo ? filtroPeriodo(q.periodo) : {}),
       ...(q.numero ? filtroNumero(q.numero) : {}),
+      ...(q.clase ? { tipo: { in: tiposDeClase(q.clase) } } : {}),
       ...(q.fechaDesde || q.fechaHasta
         ? {
             fechaEmision: {

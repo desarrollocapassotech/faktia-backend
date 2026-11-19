@@ -74,7 +74,7 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/comprobantes?estado=&clienteId=&numero=&fechaDesde=&fechaHasta=&ordenarPor=&dir=&pagina=&porPagina=` | Lista paginada `{ total, pagina, porPagina, items }`. `numero`: `15` o `00002-00000015`. Fechas de emisión `YYYY-MM-DD`, inclusive. `ordenarPor`: `comprobante`, `numero`, `fecha`, `cliente`, `total` o `estado` (`dir` `asc`/`desc`); sin él, los más recientes primero |
+| GET | `/api/comprobantes?estado=&clase=&clienteId=&numero=&fechaDesde=&fechaHasta=&ordenarPor=&dir=&pagina=&porPagina=` | Lista paginada `{ total, pagina, porPagina, items }`. `clase`: `FACTURA`, `NOTA_CREDITO` o `NOTA_DEBITO` (cualquier letra). `numero`: `15` o `00002-00000015`. Fechas de emisión `YYYY-MM-DD`, inclusive. `ordenarPor`: `comprobante`, `numero`, `fecha`, `cliente`, `total` o `estado` (`dir` `asc`/`desc`); sin él, los más recientes primero |
 | POST | `/api/comprobantes` | Crea un borrador de factura. `tipo` opcional (`FACTURA_A/B/C`); si falta, se usa la letra sugerida |
 | GET | `/api/comprobantes/:id` | Detalle con líneas, alícuotas, cliente, notas asociadas, `letraSugerida` y `advertenciaLetra` |
 | PATCH | `/api/comprobantes/:id` | Edita un BORRADOR o RECHAZADO. Requiere `version` (lock optimista, `409` si cambió) |

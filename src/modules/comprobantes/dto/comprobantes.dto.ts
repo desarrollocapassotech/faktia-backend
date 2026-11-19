@@ -22,6 +22,8 @@ export const PERIODO = /^\d{4}-(0[1-9]|1[0-2])$/;
 export const NUMERO_BUSQUEDA = /^\s*\d{1,8}(\s*-\s*\d{1,8})?\s*$/;
 export const ORDENES_COMPROBANTES = ['comprobante', 'numero', 'fecha', 'cliente', 'total', 'estado'] as const;
 export type OrdenComprobantes = (typeof ORDENES_COMPROBANTES)[number];
+export const CLASES_COMPROBANTE = ['FACTURA', 'NOTA_CREDITO', 'NOTA_DEBITO'] as const;
+export type ClaseComprobante = (typeof CLASES_COMPROBANTE)[number];
 const aTexto = ({ value }: { value: unknown }) => (typeof value === 'number' ? String(value) : value);
 
 export class LineaDto {
@@ -218,6 +220,11 @@ export class ListarComprobantesQuery {
   @IsOptional()
   @Matches(PERIODO, { message: 'periodo debe tener formato YYYY-MM.' })
   periodo?: string;
+
+  /** Clase de comprobante, cualquier letra: FACTURA, NOTA_CREDITO o NOTA_DEBITO. */
+  @IsOptional()
+  @IsIn(CLASES_COMPROBANTE)
+  clase?: ClaseComprobante;
 
   /** "00002-00000015" / "2-15" (punto de venta y número) o solo el número ("15"). */
   @IsOptional()
