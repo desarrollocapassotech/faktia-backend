@@ -1,11 +1,30 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, type Recibo, type TipoRecibo } from '@prisma/client';
+import * as QRCode from 'qrcode';
 import type { AuthContext } from '../auth';
+import { firmaValida, firmar } from '../../shared/crypto/cifrado';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { dibujarGeneradoCon, fuentesPdf } from '../../shared/pdf/marca-pdf';
 import { formatearCuit } from '../../shared/util/cuit';
 import { TenantsService } from '../tenants';
-import { generarRecibo, ReciboInvalidoError, type Parte, type ReciboInput, type ReciboOutput } from './core';
+import { generarRecibo, ReciboInvalidoError, type Parte, type ReciboEstilo, type ReciboInput, type ReciboOutput } from './core';
+
+/** Propósito de la firma del link de verificación (no sirve para otros usos). */
+const PROPOSITO_VERIFICACION = 'recibo.verificar';
+
+/** Lo que muestra la página pública de verificación: lo que ya está impreso en el recibo, nada más. */
+export interface ReciboVerificado {
+  valido: true;
+  emisor: string;
+  tipo: TipoRecibo;
+  numero: string | null;
+  fecha: string;
+  moneda: Recibo['moneda'];
+  total: string;
+  contraparte: string;
+  creadoEn: string;
+}
 import { CrearReciboDto, GenerarReciboDto } from './dto/recibos.dto';
 
 /** Columnas por las que se puede ordenar el listado unificado de comprobantes. */
@@ -73,10 +92,54 @@ export class RecibosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenants: TenantsService,
+    private readonly config: ConfigService,
   ) {}
 
-  /** Arma el PDF (valida el contenido: total = suma de los conceptos). */
-  async generar(tenantId: string, dto: GenerarReciboDto): Promise<ReciboOutput> {
+  /**
+   * Link público que verifica un recibo guardado (lo lleva el QR del PDF). La firma impide armar
+   * links válidos para otros ids.
+   */
+  urlVerificacion(id: string): string {
+    const front = (this.config.getOrThrow<string>('FRONTEND_URL').split(',')[0] ?? '').trim().replace(/\/+$/, '');
+    return `${front}/verificar/recibo/${encodeURIComponent(id)}?c=${firmar(PROPOSITO_VERIFICACION, id)}`;
+  }
+
+  /**
+   * Datos mínimos de un recibo para la página pública de verificación. Sin sesión: el id y la firma
+   * del QR son la credencial. Cualquier falla responde lo mismo (no se distingue id inexistente de firma mala).
+   */
+  async verificar(id: string, firma: string): Promise<ReciboVerificado> {
+    const r = firmaValida(PROPOSITO_VERIFICACION, id, firma)
+      ? await this.prisma.recibo.findUnique({
+          where: { id },
+          select: {
+            tipo: true,
+            numero: true,
+            fecha: true,
+            moneda: true,
+            total: true,
+            contraparteNombre: true,
+            createdAt: true,
+            tenant: { select: { razonSocial: true, nombreFantasia: true } },
+          },
+        })
+      : null;
+    if (!r) throw new NotFoundException('No encontramos este recibo.');
+    return {
+      valido: true,
+      emisor: r.tenant.razonSocial ?? r.tenant.nombreFantasia,
+      tipo: r.tipo,
+      numero: r.numero,
+      fecha: r.fecha.toISOString().slice(0, 10),
+      moneda: r.moneda,
+      total: r.total.toFixed(2),
+      contraparte: r.contraparteNombre,
+      creadoEn: r.createdAt.toISOString(),
+    };
+  }
+
+  /** Arma el PDF (valida el contenido: total = suma de los conceptos). Con `qr`, lo dibuja al pie. */
+  async generar(tenantId: string, dto: GenerarReciboDto, qr?: ReciboEstilo['qr']): Promise<ReciboOutput> {
     const [emisor, plantilla] = await Promise.all([this.tenants.obtenerEmisorCompleto(tenantId), this.tenants.obtenerPlantilla(tenantId)]);
     const tenant: Parte = {
       nombre: emisor.razonSocial,
@@ -109,6 +172,7 @@ export class RecibosService {
         lineaFirma: dto.tipo !== 'COBRO',
         fuentes: { normal: fuentes.normal, seminegrita: fuentes.seminegrita, italica: fuentes.italica },
         marcaPie: dibujarGeneradoCon,
+        qr,
       });
     } catch (err) {
       if (err instanceof ReciboInvalidoError) throw new BadRequestException(err.message);
@@ -158,10 +222,12 @@ export class RecibosService {
     return r;
   }
 
-  /** PDF de un recibo guardado, con la plantilla vigente. */
+  /** PDF de un recibo guardado, con la plantilla vigente y el QR que lo verifica. */
   async pdf(tenantId: string, id: string): Promise<ReciboOutput> {
     const r = await this.obtener(tenantId, id);
     const contraparte = r.contraparte as unknown as Parte;
+    const imagen = await QRCode.toBuffer(this.urlVerificacion(r.id), { width: 240, margin: 1 });
+    const qr = { imagen, leyenda: 'Escaneá el código para verificar que este recibo es válido y fue emitido con Faktia.' };
     return this.generar(tenantId, {
       tipo: r.tipo,
       numero: r.numero ?? undefined,
@@ -174,7 +240,7 @@ export class RecibosService {
       observaciones: r.observaciones ?? undefined,
       comprobantesAplicados: (r.comprobantesAplicados as unknown as GenerarReciboDto['comprobantesAplicados']) ?? undefined,
       periodo: r.periodo ?? undefined,
-    });
+    }, qr);
   }
 
   /** El número siguiente al del último recibo de ese tipo (numeraciones separadas por tipo). */

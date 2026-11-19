@@ -7,6 +7,7 @@ const PAGE_H = 841.89;
 const M = 36;
 const CW = PAGE_W - M * 2;
 const FIRMA_ALTO = 90;
+const QR_LADO = 64;
 const PIE_ALTO = 24;
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const LINEA = 0.75;
@@ -170,6 +171,19 @@ function dibujar(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEsti
   doc.fontSize(9).font(f.seminegrita).fillColor(TEXTO).text(c.firma.nombre, fx, fy + 16, { width: 220, align: 'center' });
   if (c.firma.documento) {
     doc.fontSize(8).font(f.normal).fillColor(TEXTO_SECUNDARIO).text(c.firma.documento, fx, doc.y + 1, { width: 220, align: 'center', ...NUM });
+  }
+
+  // QR a la izquierda de la firma, con su leyenda al lado.
+  if (estilo.qr?.imagen.length) {
+    const lado = QR_LADO;
+    const qy = fy - 8;
+    try {
+      doc.image(Buffer.from(estilo.qr.imagen), M, qy, { width: lado, height: lado });
+      doc.fontSize(7.5).font(f.normal).fillColor(TEXTO_SECUNDARIO)
+        .text(estilo.qr.leyenda, M + lado + 8, qy + 6, { width: fx - (M + lado + 8) - 24, lineGap: 1 });
+    } catch {
+      // QR ilegible: se omite
+    }
   }
   pie(true);
 }

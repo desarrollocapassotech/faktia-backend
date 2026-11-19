@@ -1,4 +1,4 @@
-import { cifrar, descifrar } from './cifrado';
+import { cifrar, descifrar, firmaValida, firmar } from './cifrado';
 
 describe('cifrado', () => {
   const original = process.env.FAKTIA_ENCRYPTION_KEY;
@@ -33,6 +33,18 @@ describe('cifrado', () => {
     const c = cifrar('secreto');
     const alterado = c.slice(0, -2) + (c.endsWith('00') ? '11' : '00');
     expect(() => descifrar(alterado)).toThrow();
+  });
+
+  it('firma: estable, corta y atada al valor, al propósito y a la clave', () => {
+    const f = firmar('recibo.verificar', 'abc');
+    expect(f).toBe(firmar('recibo.verificar', 'abc'));
+    expect(f).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(firmaValida('recibo.verificar', 'abc', f)).toBe(true);
+    expect(firmaValida('recibo.verificar', 'abd', f)).toBe(false);
+    expect(firmaValida('otro.uso', 'abc', f)).toBe(false);
+    expect(firmaValida('recibo.verificar', 'abc', '')).toBe(false);
+    process.env.FAKTIA_ENCRYPTION_KEY = 'otra-clave-distinta-de-mas-de-32-caracteres';
+    expect(firmaValida('recibo.verificar', 'abc', f)).toBe(false);
   });
 
   it('sigue leyendo el nombre viejo de la variable (FACTURADOR_ENCRYPTION_KEY)', () => {

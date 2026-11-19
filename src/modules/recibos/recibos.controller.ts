@@ -1,8 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { CurrentAuth, type AuthContext } from '../auth';
+import { CurrentAuth, Public, type AuthContext } from '../auth';
 import type { ReciboOutput } from './core';
-import { CrearReciboDto, GenerarReciboDto, SiguienteNumeroQuery } from './dto/recibos.dto';
+import { CrearReciboDto, GenerarReciboDto, SiguienteNumeroQuery, VerificarReciboQuery } from './dto/recibos.dto';
 import { RecibosService } from './recibos.service';
 
 function enviarPdf(res: Response, { pdf, filename }: ReciboOutput) {
@@ -28,6 +28,16 @@ export class RecibosController {
   @HttpCode(200)
   async pdf(@CurrentAuth() auth: AuthContext, @Body() dto: GenerarReciboDto, @Res() res: Response) {
     enviarPdf(res, await this.recibos.generar(auth.tenantId, dto));
+  }
+
+  /**
+   * Pública (sin sesión): la usa la página a la que lleva el QR del recibo. La credencial es la firma
+   * del link (`c`); sin ella o con otra, 404.
+   */
+  @Public()
+  @Get('verificar/:id')
+  verificar(@Param('id') id: string, @Query() q: VerificarReciboQuery) {
+    return this.recibos.verificar(id, q.c);
   }
 
   /** Número sugerido para el próximo recibo de ese tipo. */

@@ -122,6 +122,13 @@ export class CrearReciboDto extends GenerarReciboDto {
   clienteId?: string;
 }
 
+export class VerificarReciboQuery {
+  /** Firma del link de verificación (la pone el QR del recibo). */
+  @IsString()
+  @MaxLength(64)
+  c: string;
+}
+
 export class SiguienteNumeroQuery {
   @IsIn(['COBRO', 'PAGO'])
   tipo: 'COBRO' | 'PAGO';

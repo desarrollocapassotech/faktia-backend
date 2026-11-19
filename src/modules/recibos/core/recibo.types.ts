@@ -60,6 +60,11 @@ export interface ReciboEstilo {
    * el recibo), con el renglón arrancando en `y`. Devuelve el ancho que ocupó.
    */
   marcaPie?: (doc: PDFKit.PDFDocument, xDerecha: number, y: number) => number;
+  /**
+   * Código QR (imagen PNG ya generada) que se dibuja abajo a la izquierda, a la altura de la firma,
+   * con su leyenda al lado (ej. un link para verificar el recibo).
+   */
+  qr?: { imagen: Uint8Array; leyenda: string };
 }
 
 export interface ReciboOutput {

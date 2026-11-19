@@ -12,6 +12,7 @@ import { AppModule } from './app.module';
 import { hashPassword } from './modules/auth/password';
 import { sha256Hex } from './modules/auth/claves';
 import { PadronEmisorService } from './modules/tenants/padron-emisor.service';
+import { firmar } from './shared/crypto/cifrado';
 import { PrismaService } from './shared/prisma/prisma.service';
 import { cuitDePrueba } from './shared/testing/datos';
 import { esCuitValido } from './shared/util/cuit';
@@ -192,6 +193,8 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['POST', `/configuracion/webhooks/entregas/${a.entrega}/reenviar`],
     ['GET', `/recibos/${a.recibo}`],
     ['GET', `/recibos/${a.recibo}/pdf`],
+    // La verificación pública exige la firma del QR: con otra, nada.
+    ['GET', `/recibos/verificar/${a.recibo}?c=AAAAAAAAAAAAAAAAAAAAAA`],
     // Un recibo de B no puede apuntar a un cliente de A (FK compuesta).
     ['POST', '/recibos', { tipo: 'COBRO', fecha: '2026-09-29', moneda: 'ARS', clienteId: a.cliente, contraparte: { nombre: 'x' }, items: [{ descripcion: 'x', importe: '1' }], total: '1' }],
   ];
@@ -229,6 +232,16 @@ const hayBase = Boolean(process.env.DATABASE_URL);
       if (r.status < 400) pasaron.push(`${metodo} ${ruta} → ${r.status}`);
     }
     expect(pasaron).toEqual([]);
+  });
+
+  it('el QR de un recibo se verifica sin sesión, solo con su firma, y muestra lo mínimo', async () => {
+    const ok = await http('GET', `/recibos/verificar/${a.recibo}?c=${firmar('recibo.verificar', a.recibo)}`);
+    expect(ok.status).toBe(200);
+    const datos = JSON.parse(ok.body) as Record<string, unknown>;
+    expect(datos).toMatchObject({ valido: true, emisor: 'E2E a SA', tipo: 'COBRO', numero: '0001-00000001', total: '100.00', contraparte: 'Cliente A' });
+    expect(Object.keys(datos).sort()).toEqual(['contraparte', 'creadoEn', 'emisor', 'fecha', 'moneda', 'numero', 'tipo', 'total', 'valido']);
+    // La firma de un recibo no sirve para otro id.
+    expect((await http('GET', `/recibos/verificar/${a.comprobante}?c=${firmar('recibo.verificar', a.recibo)}`)).status).toBe(404);
   });
 
   it('los listados de B no muestran nada de A', async () => {

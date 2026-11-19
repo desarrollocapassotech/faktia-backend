@@ -98,7 +98,8 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 |---|---|---|
 | POST | `/api/recibos` | Crea (guarda) un recibo: el mismo body que `/api/recibos/pdf` más `clienteId?` (solo COBRO). Aparece en `GET /api/comprobantes?incluirRecibos=true`. `409` si ya hay un recibo de ese tipo con el mismo número |
 | GET | `/api/recibos/siguiente-numero?tipo=` | Número sugerido: el siguiente al del último recibo guardado de ese tipo (`0001-00000001` si no hay) |
-| GET | `/api/recibos/:id` · `/api/recibos/:id/pdf` | Recibo guardado y su PDF (se arma con la plantilla vigente) |
+| GET | `/api/recibos/:id` · `/api/recibos/:id/pdf` | Recibo guardado y su PDF (se arma con la plantilla vigente). El PDF lleva un QR al link público de verificación |
+| GET | `/api/recibos/verificar/:id?c=` | **Pública** (sin sesión): la usa la página a la que lleva el QR. `c` es un HMAC del id con `FAKTIA_ENCRYPTION_KEY`; sin la firma correcta, `404`. Devuelve solo lo impreso en el recibo: emisor, tipo, número, fecha, moneda, total y contraparte. Si cambia la clave, los QR ya impresos dejan de verificar |
 | POST | `/api/recibos/pdf` | Genera un recibo en PDF, sin guardarlo. `{ tipo: COBRO \| PAGO, numero?, fecha, moneda, contraparte: { nombre, documento?, domicilio? }, items: [{ descripcion, cantidad?, importe }], total, medioPago?, observaciones?, comprobantesAplicados? (COBRO), periodo? (PAGO) }`. La parte del tenant (quien cobra o quien paga) sale de los datos del emisor; el estilo, de la plantilla PDF. `400` si el total no coincide con la suma de los conceptos |
 
 El generador vive en `src/modules/recibos/core/`: TypeScript puro (solo `pdfkit`), con su propio `package.json` (`@capassotech/recibos`) y tests. Un test falla si importa algo fuera de esa carpeta.
