@@ -114,25 +114,25 @@ enum EstadoWebhookEntrega {
 // ─────────────────────────────── Tenants ───────────────────────────────
 
 model Tenant {
-  id                String       @id @default(cuid())
-  slug              String       @unique
-  nombreFantasia    String
+  id                 String        @id @default(cuid())
+  slug               String        @unique
+  nombreFantasia     String
   // Datos fiscales: null en una empresa recién registrada; se completan en Configuración
   // y son obligatorios para facturar (TenantsService.obtenerEmisorCompleto).
-  razonSocial       String?
-  cuit              String?      @unique // 11 dígitos, sin guiones
-  condicionIva      CondicionIva?
-  domicilioFiscal   String?
-  ingresosBrutos    String?
-  inicioActividades DateTime?    @db.Date
+  razonSocial        String?
+  cuit               String?       @unique // 11 dígitos, sin guiones
+  condicionIva       CondicionIva?
+  domicilioFiscal    String?
+  ingresosBrutos     String?
+  inicioActividades  DateTime?     @db.Date
   // Campos del emisor que salieron del padrón de ARCA ("razonSocial" | "condicionIva" |
   // "domicilioFiscal"): no se editan a mano (PadronEmisorService).
-  camposDeArca       String[]     @default([])
+  camposDeArca       String[]      @default([])
   padronVerificadoEn DateTime?
-  ambienteArca      AmbienteArca @default(HOMOLOGACION)
-  activo            Boolean      @default(true)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  ambienteArca       AmbienteArca  @default(HOMOLOGACION)
+  activo             Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   usuarios             Usuario[]
   integraciones        Integracion[]
@@ -154,6 +154,8 @@ model Tenant {
   webhookSuscripciones WebhookSuscripcion[]
   webhookEntregas      WebhookEntrega[]
   recibos              Recibo[]
+  movimientosCc        MovimientoCuentaCorriente[]
+  imputacionesCc       ImputacionCuentaCorriente[]
 
   @@map("tenants")
 }
@@ -360,11 +362,12 @@ model Cliente {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  referencias  ClienteReferenciaExterna[]
-  tarifas      Tarifa[]
-  items        ItemFacturable[]
-  comprobantes Comprobante[]
-  recibos      Recibo[]
+  referencias   ClienteReferenciaExterna[]
+  tarifas       Tarifa[]
+  items         ItemFacturable[]
+  comprobantes  Comprobante[]
+  recibos       Recibo[]
+  movimientosCc MovimientoCuentaCorriente[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, tipoDocumento, numeroDocumento])
@@ -573,10 +576,11 @@ model Comprobante {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  lineas    ComprobanteLinea[]
-  alicuotas ComprobanteAlicuota[]
-  arcaLogs  ArcaLog[]
-  items     ItemFacturable[]
+  lineas       ComprobanteLinea[]
+  alicuotas    ComprobanteAlicuota[]
+  arcaLogs     ArcaLog[]
+  items        ItemFacturable[]
+  movimientoCc MovimientoCuentaCorriente?
 
   @@unique([tenantId, id])
   @@unique([tenantId, ambiente, puntoVentaId, tipo, numero]) // Postgres permite múltiples NULL
@@ -619,11 +623,81 @@ model Recibo {
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
 
+  movimientoCc MovimientoCuentaCorriente?
+
   @@unique([tenantId, id])
   @@unique([tenantId, tipo, numero]) // Postgres permite múltiples NULL
   @@index([tenantId, fecha])
   @@index([tenantId, clienteId])
   @@map("recibos")
+}
+
+// ─────────────────────────────── Cuenta corriente ───────────────────────────────
+
+enum TipoMovimientoCc {
+  DEBE // lo que el cliente debe: factura, nota de débito, saldo inicial o ajuste
+  HABER // lo que lo cancela: cobro (recibo), nota de crédito o ajuste a su favor
+}
+
+enum OrigenMovimientoCc {
+  COMPROBANTE // factura / ND (DEBE) o NC (HABER) emitida: la crea la sincronización
+  RECIBO // recibo de cobro guardado con un cliente: la crea la sincronización
+  MANUAL // cargado desde Cuenta corriente (saldo inicial, ajuste, cobro sin recibo)
+}
+
+/// Un renglón de la cuenta corriente de un cliente (como Vialto). Los de comprobantes y recibos
+/// los crea la sincronización (CuentaCorrienteService.sincronizar), nunca se editan a mano salvo el
+/// vencimiento. Lo pendiente de cada uno no se guarda: sale de las imputaciones.
+model MovimientoCuentaCorriente {
+  id               String             @id @default(cuid())
+  tenantId         String
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId        String
+  cliente          Cliente            @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  tipo             TipoMovimientoCc
+  origen           OrigenMovimientoCc
+  comprobanteId    String?
+  comprobante      Comprobante?       @relation(fields: [tenantId, comprobanteId], references: [tenantId, id], onDelete: Cascade)
+  reciboId         String?
+  recibo           Recibo?            @relation(fields: [tenantId, reciboId], references: [tenantId, id], onDelete: Cascade)
+  concepto         String // "Factura A", "Recibo de cobro", "Saldo inicial"…
+  numero           String? // número del comprobante, recibo o referencia externa
+  moneda           Moneda
+  importe          Decimal            @db.Decimal(15, 2) // siempre positivo; el tipo dice el signo
+  fecha            DateTime           @db.Date
+  fechaVencimiento DateTime?          @db.Date // solo DEBE
+  observaciones    String?
+  creadoPorId      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  imputacionesComoDebe  ImputacionCuentaCorriente[] @relation("ImputacionDebe")
+  imputacionesComoHaber ImputacionCuentaCorriente[] @relation("ImputacionHaber")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, comprobanteId])
+  @@unique([tenantId, reciboId])
+  @@index([tenantId, clienteId, fecha])
+  @@map("movimientos_cuenta_corriente")
+}
+
+/// Cuánto de un HABER (cobro, NC) se aplica a un DEBE (factura) puntual. Misma cuenta y moneda.
+model ImputacionCuentaCorriente {
+  id          String                    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  haberId     String
+  haber       MovimientoCuentaCorriente @relation("ImputacionHaber", fields: [tenantId, haberId], references: [tenantId, id], onDelete: Cascade)
+  debeId      String
+  debe        MovimientoCuentaCorriente @relation("ImputacionDebe", fields: [tenantId, debeId], references: [tenantId, id], onDelete: Cascade)
+  importe     Decimal                   @db.Decimal(15, 2)
+  automatica  Boolean                   @default(false) // la hizo la sincronización (NC a su factura, recibo a las facturas que cancela)
+  creadoPorId String?
+  createdAt   DateTime                  @default(now())
+
+  @@unique([tenantId, haberId, debeId])
+  @@index([tenantId, debeId])
+  @@map("imputaciones_cuenta_corriente")
 }
 
 model ComprobanteLinea {

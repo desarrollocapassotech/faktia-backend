@@ -53,6 +53,18 @@ export interface ReciboResumen {
   contraparteNombre: string;
 }
 
+/** Recibo de cobro visto desde la cuenta corriente. `comprobantesAplicados`: [{ descripcion, importe, comprobanteId? }]. */
+export interface ReciboParaCuentaCorriente {
+  id: string;
+  clienteId: string | null;
+  numero: string | null;
+  fecha: Date;
+  moneda: Recibo['moneda'];
+  total: Prisma.Decimal;
+  medioPago: string | null;
+  comprobantesAplicados: Prisma.JsonValue;
+}
+
 const deYmd = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
 
 /**
@@ -251,6 +263,22 @@ export class RecibosService {
       select: { numero: true },
     });
     return { numero: siguienteNumeroRecibo(ultimo?.numero) };
+  }
+
+  /** Para la cuenta corriente: ids de los recibos de cobro guardados con un cliente de Faktia. */
+  async idsCobrosConCliente(tenantId: string): Promise<string[]> {
+    const filas = await this.prisma.recibo.findMany({ where: { tenantId, tipo: 'COBRO', clienteId: { not: null } }, select: { id: true } });
+    return filas.map((f) => f.id);
+  }
+
+  /** Lo que la cuenta corriente necesita de cada recibo de cobro (incluye las facturas que cancela). */
+  paraCuentaCorriente(tenantId: string, ids: string[]): Promise<ReciboParaCuentaCorriente[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.recibo.findMany({
+      where: { tenantId, id: { in: ids }, tipo: 'COBRO', clienteId: { not: null } },
+      select: { id: true, clienteId: true, numero: true, fecha: true, moneda: true, total: true, medioPago: true, comprobantesAplicados: true },
+      orderBy: [{ fecha: 'asc' }, { createdAt: 'asc' }],
+    });
   }
 
   /**

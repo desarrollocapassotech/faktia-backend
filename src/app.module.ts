@@ -8,6 +8,7 @@ import { ApiPublicaModule } from './modules/api-publica';
 import { AuthModule } from './modules/auth';
 import { ClientesModule } from './modules/clientes';
 import { ComprobantesModule } from './modules/comprobantes';
+import { CuentaCorrienteModule } from './modules/cuenta-corriente';
 import { ImportacionesModule } from './modules/importaciones';
 import { ProduccionModule } from './modules/produccion';
 import { RecibosModule } from './modules/recibos';
@@ -29,6 +30,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     ImportacionesModule,
     ComprobantesModule,
     RecibosModule,
+    CuentaCorrienteModule,
     ApiPublicaModule,
     ProduccionModule,
   ],

@@ -43,6 +43,15 @@ export class ClientesService {
     });
   }
 
+  /** Todos los clientes (activos e inactivos, sin tope), con lo que muestra el listado de la cuenta corriente. */
+  todosParaCuentas(tenantId: string) {
+    return this.prisma.cliente.findMany({
+      where: { tenantId },
+      select: { id: true, razonSocial: true, tipoDocumento: true, numeroDocumento: true, activo: true },
+      orderBy: { razonSocial: 'asc' },
+    });
+  }
+
   async obtener(tenantId: string, id: string): Promise<Cliente> {
     const c = await this.prisma.cliente.findUnique({ where: { tenantId_id: { tenantId, id } } });
     if (!c) throw new NotFoundException('Cliente no encontrado.');

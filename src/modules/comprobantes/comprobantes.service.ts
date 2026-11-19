@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, TipoComprobante, type ConceptoArca, type Moneda } from '@prisma/client';
+import { Prisma, TipoComprobante, type AmbienteArca, type ConceptoArca, type Moneda } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import type { AuthContext } from '../auth';
 import { ClientesService } from '../clientes';
@@ -40,6 +40,22 @@ const INCLUDE_DETALLE = {
 } satisfies Prisma.ComprobanteInclude;
 
 export type ComprobanteDetalle = Prisma.ComprobanteGetPayload<{ include: typeof INCLUDE_DETALLE }>;
+
+const SELECT_CUENTA_CORRIENTE = {
+  id: true,
+  tipo: true,
+  numero: true,
+  clienteId: true,
+  moneda: true,
+  importeTotal: true,
+  fechaEmision: true,
+  fechaVtoPago: true,
+  asociadoId: true,
+  puntoVenta: { select: { numero: true } },
+  cliente: { select: { diasVencimiento: true } },
+} satisfies Prisma.ComprobanteSelect;
+
+export type ComprobanteParaCuentaCorriente = Prisma.ComprobanteGetPayload<{ select: typeof SELECT_CUENTA_CORRIENTE }>;
 
 interface DatosBorrador {
   concepto: ConceptoArca;
@@ -258,6 +274,27 @@ export class ComprobantesService {
     });
     if (!c) throw new NotFoundException('Comprobante no encontrado.');
     return c;
+  }
+
+  // ── Para la cuenta corriente ─────────────────────────────────────────────
+
+  /** Ids de los comprobantes con CAE (emitidos o anulados) de un ambiente. */
+  async idsConCae(tenantId: string, ambiente: AmbienteArca): Promise<string[]> {
+    const filas = await this.prisma.comprobante.findMany({
+      where: { tenantId, ambiente, estado: { in: ['EMITIDO', 'ANULADO'] }, numero: { not: null } },
+      select: { id: true },
+    });
+    return filas.map((f) => f.id);
+  }
+
+  /** Lo que la cuenta corriente necesita de cada comprobante: importe, fechas, número y factura asociada (NC/ND). */
+  paraCuentaCorriente(tenantId: string, ids: string[]): Promise<ComprobanteParaCuentaCorriente[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.comprobante.findMany({
+      where: { tenantId, id: { in: ids }, estado: { in: ['EMITIDO', 'ANULADO'] }, numero: { not: null } },
+      select: SELECT_CUENTA_CORRIENTE,
+      orderBy: [{ fechaEmision: 'asc' }, { createdAt: 'asc' }],
+    });
   }
 
   // ── Borradores ───────────────────────────────────────────────────────────

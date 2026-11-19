@@ -131,6 +131,10 @@ const hayBase = Boolean(process.env.DATABASE_URL);
         },
       })
     ).id;
+    const movimiento = { tenantId: t, clienteId: a.cliente, origen: 'MANUAL' as const, moneda: 'ARS' as const, importe: '100', fecha: new Date('2026-09-29') };
+    a.movimientoDebe = (await prisma.movimientoCuentaCorriente.create({ data: { ...movimiento, tipo: 'DEBE', concepto: 'Saldo inicial' } })).id;
+    a.movimientoHaber = (await prisma.movimientoCuentaCorriente.create({ data: { ...movimiento, tipo: 'HABER', concepto: 'Cobro' } })).id;
+    a.imputacion = (await prisma.imputacionCuentaCorriente.create({ data: { tenantId: t, haberId: a.movimientoHaber, debeId: a.movimientoDebe, importe: '40' } })).id;
 
     // Empresa B: sesión de usuario y API key con todos los permisos.
     const tb = await crearTenant('b');
@@ -151,6 +155,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   afterAll(async () => {
     await app?.close();
     for (const id of tenants) {
+      await prisma.movimientoCuentaCorriente.deleteMany({ where: { tenantId: id } });
       await prisma.webhookEntrega.deleteMany({ where: { tenantId: id } });
       await prisma.itemFacturable.deleteMany({ where: { tenantId: id } });
       await prisma.comprobante.deleteMany({ where: { tenantId: id } });
@@ -197,6 +202,12 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['GET', `/recibos/verificar/${a.recibo}?c=AAAAAAAAAAAAAAAAAAAAAA`],
     // Un recibo de B no puede apuntar a un cliente de A (FK compuesta).
     ['POST', '/recibos', { tipo: 'COBRO', fecha: '2026-09-29', moneda: 'ARS', clienteId: a.cliente, contraparte: { nombre: 'x' }, items: [{ descripcion: 'x', importe: '1' }], total: '1' }],
+    ['GET', `/cuenta-corriente/cuentas/${a.cliente}`],
+    ['POST', '/cuenta-corriente/movimientos', { clienteId: a.cliente, tipo: 'DEBE', concepto: 'x', fecha: '2026-09-29', moneda: 'ARS', importe: '1' }],
+    ['PATCH', `/cuenta-corriente/movimientos/${a.movimientoDebe}`, { concepto: 'Hackeado' }],
+    ['DELETE', `/cuenta-corriente/movimientos/${a.movimientoDebe}`],
+    ['POST', '/cuenta-corriente/imputaciones', { haberId: a.movimientoHaber, debeId: a.movimientoDebe }],
+    ['DELETE', `/cuenta-corriente/imputaciones/${a.imputacion}`],
   ];
 
   it('con la sesión de otra empresa, ningún endpoint con id toca recursos ajenos', async () => {
@@ -245,7 +256,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   });
 
   it('los listados de B no muestran nada de A', async () => {
-    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta'];
+    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen'];
     const idsA = Object.values(a);
     const filtrados: string[] = [];
     for (const ruta of rutas) {
@@ -319,6 +330,13 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     expect(webhook).toMatchObject({ activa: true, secretoCifrado: 'v1:x:x:x' });
     expect(pv.activo).toBe(true);
     expect(imp.estado).toBe('EN_STAGING');
+    const [debe, imputacion] = await Promise.all([
+      prisma.movimientoCuentaCorriente.findUniqueOrThrow({ where: { id: a.movimientoDebe } }),
+      prisma.imputacionCuentaCorriente.findUniqueOrThrow({ where: { id: a.imputacion } }),
+    ]);
+    expect(debe.concepto).toBe('Saldo inicial');
+    expect(imputacion.importe.toString()).toBe('40');
+    expect(await prisma.movimientoCuentaCorriente.count({ where: { tenantId: { in: tenants.slice(1) } } })).toBe(0);
     expect(await prisma.comprobante.count({ where: { tenantId: { in: tenants.slice(1) } } })).toBe(0);
   });
 

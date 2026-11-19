@@ -55,6 +55,12 @@ export class ComprobanteAplicadoDto {
 
   @Matches(MONTO, { message: `importe ${MSJ_MONTO}` })
   importe: string;
+
+  /** Id del comprobante de Faktia que cancela: con él, el cobro se imputa solo en la cuenta corriente. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  comprobanteId?: string;
 }
 
 /**

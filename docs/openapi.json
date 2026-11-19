@@ -1620,6 +1620,11 @@
           },
           "importe": {
             "type": "string"
+          },
+          "comprobanteId": {
+            "type": "string",
+            "description": "Id del comprobante de Faktia que cancela: con él, el cobro se imputa solo en la cuenta corriente.",
+            "maxLength": 40
           }
         },
         "required": [
