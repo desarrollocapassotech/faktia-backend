@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../auth';
+import { RecibosService } from '../recibos';
 import { ComprobantePdfService } from './comprobante-pdf.service';
 import { ComprobantesService } from './comprobantes.service';
 import {
@@ -25,6 +26,7 @@ import {
   ListarComprobantesQuery,
 } from './dto/comprobantes.dto';
 import { EmisionService } from './emision.service';
+import { filaDeComprobante, filaDeRecibo, paginaUnificada } from './listado-unificado';
 
 @Controller('comprobantes')
 export class ComprobantesController {
@@ -32,11 +34,41 @@ export class ComprobantesController {
     private readonly comprobantes: ComprobantesService,
     private readonly emision: EmisionService,
     private readonly pdf: ComprobantePdfService,
+    private readonly recibos: RecibosService,
   ) {}
 
+  /**
+   * Con `incluirRecibos` (el listado de la app), suma los recibos guardados: se traen las primeras
+   * pagina × porPagina filas de cada lado, se mezclan con el mismo orden y se pagina.
+   */
   @Get()
-  listar(@CurrentAuth() auth: AuthContext, @Query() q: ListarComprobantesQuery) {
-    return this.comprobantes.listar(auth.tenantId, q);
+  async listar(@CurrentAuth() auth: AuthContext, @Query() q: ListarComprobantesQuery) {
+    const conRecibos = q.incluirRecibos && (!q.clase || q.clase === 'RECIBO') && (!q.estado || q.estado === 'EMITIDO') && !q.periodo;
+    if (!conRecibos) return this.comprobantes.listar(auth.tenantId, q);
+
+    const porPagina = q.porPagina ?? 25;
+    const pagina = q.pagina ?? 1;
+    const limite = pagina * porPagina;
+    const [comprobantes, recibos] = await Promise.all([
+      q.clase === 'RECIBO' ? { total: 0, items: [] } : this.comprobantes.ventanaListado(auth.tenantId, q, limite),
+      this.recibos.listarParaListado(
+        auth.tenantId,
+        { numero: q.numero, clienteId: q.clienteId, fechaDesde: q.fechaDesde, fechaHasta: q.fechaHasta, ordenarPor: q.ordenarPor, dir: q.dir },
+        limite,
+      ),
+    ]);
+    return {
+      total: comprobantes.total + recibos.total,
+      pagina,
+      porPagina,
+      items: paginaUnificada(
+        comprobantes.items.map(filaDeComprobante),
+        recibos.items.map(filaDeRecibo),
+        { por: q.ordenarPor, dir: q.dir },
+        pagina,
+        porPagina,
+      ),
+    };
   }
 
   @Post()

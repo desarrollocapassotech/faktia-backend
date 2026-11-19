@@ -67,8 +67,8 @@ export function filtroNumero(texto: string): Prisma.ComprobanteWhereInput {
   return partes.length === 2 ? { puntoVenta: { numero: partes[0] }, numero: partes[1] } : { numero: partes[0] };
 }
 
-/** FACTURA → FACTURA_A, FACTURA_B, FACTURA_C (y lo mismo con las notas). */
-export function tiposDeClase(clase: ClaseComprobante): TipoComprobante[] {
+/** FACTURA → FACTURA_A, FACTURA_B, FACTURA_C (y lo mismo con las notas). RECIBO → ninguno. */
+export function tiposDeClase(clase: ClaseComprobante | 'RECIBO'): TipoComprobante[] {
   return Object.values(TipoComprobante).filter((t) => t.replace(/_[ABC]$/, '') === clase);
 }
 
@@ -98,6 +98,44 @@ export function ordenListado(
       return desempate;
   }
 }
+
+/** Filtros del listado. La clase RECIBO no tiene tipos de comprobante: no trae ninguno. */
+function whereListado(tenantId: string, q: ListarComprobantesQuery): Prisma.ComprobanteWhereInput {
+  return {
+    tenantId,
+    ...(q.estado ? { estado: q.estado } : {}),
+    ...(q.clienteId ? { clienteId: q.clienteId } : {}),
+    ...(q.periodo ? filtroPeriodo(q.periodo) : {}),
+    ...(q.numero ? filtroNumero(q.numero) : {}),
+    ...(q.clase ? { tipo: { in: tiposDeClase(q.clase) } } : {}),
+    ...(q.fechaDesde || q.fechaHasta
+      ? {
+          fechaEmision: {
+            ...(q.fechaDesde ? { gte: deYmdArca(q.fechaDesde) } : {}),
+            ...(q.fechaHasta ? { lte: deYmdArca(q.fechaHasta) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+const SELECT_LISTADO = {
+  id: true,
+  tipo: true,
+  estado: true,
+  ambiente: true,
+  numero: true,
+  fechaEmision: true,
+  moneda: true,
+  importeTotal: true,
+  cae: true,
+  errorMensaje: true,
+  createdAt: true,
+  cliente: { select: { id: true, razonSocial: true } },
+  puntoVenta: { select: { numero: true } },
+} satisfies Prisma.ComprobanteSelect;
+
+export type ComprobanteListado = Prisma.ComprobanteGetPayload<{ select: typeof SELECT_LISTADO }>;
 
 function aYmd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
@@ -169,22 +207,7 @@ export class ComprobantesService {
   async listar(tenantId: string, q: ListarComprobantesQuery) {
     const porPagina = q.porPagina ?? 25;
     const pagina = q.pagina ?? 1;
-    const where: Prisma.ComprobanteWhereInput = {
-      tenantId,
-      ...(q.estado ? { estado: q.estado } : {}),
-      ...(q.clienteId ? { clienteId: q.clienteId } : {}),
-      ...(q.periodo ? filtroPeriodo(q.periodo) : {}),
-      ...(q.numero ? filtroNumero(q.numero) : {}),
-      ...(q.clase ? { tipo: { in: tiposDeClase(q.clase) } } : {}),
-      ...(q.fechaDesde || q.fechaHasta
-        ? {
-            fechaEmision: {
-              ...(q.fechaDesde ? { gte: deYmdArca(q.fechaDesde) } : {}),
-              ...(q.fechaHasta ? { lte: deYmdArca(q.fechaHasta) } : {}),
-            },
-          }
-        : {}),
-    };
+    const where = whereListado(tenantId, q);
     const [total, items] = await Promise.all([
       this.prisma.comprobante.count({ where }),
       this.prisma.comprobante.findMany({
@@ -192,24 +215,23 @@ export class ComprobantesService {
         orderBy: ordenListado(q.ordenarPor, q.dir ?? 'asc'),
         skip: (pagina - 1) * porPagina,
         take: porPagina,
-        select: {
-          id: true,
-          tipo: true,
-          estado: true,
-          ambiente: true,
-          numero: true,
-          fechaEmision: true,
-          moneda: true,
-          importeTotal: true,
-          cae: true,
-          errorMensaje: true,
-          createdAt: true,
-          cliente: { select: { id: true, razonSocial: true } },
-          puntoVenta: { select: { numero: true } },
-        },
+        select: SELECT_LISTADO,
       }),
     ]);
     return { total, pagina, porPagina, items };
+  }
+
+  /**
+   * Los primeros `limite` comprobantes del listado (sin saltear) y el total que cumple los filtros.
+   * Para mezclarlos con los recibos antes de paginar (ver `listado-unificado.ts`).
+   */
+  async ventanaListado(tenantId: string, q: ListarComprobantesQuery, limite: number) {
+    const where = whereListado(tenantId, q);
+    const [total, items] = await Promise.all([
+      this.prisma.comprobante.count({ where }),
+      this.prisma.comprobante.findMany({ where, orderBy: ordenListado(q.ordenarPor, q.dir ?? 'asc'), take: limite, select: SELECT_LISTADO }),
+    ]);
+    return { total, items };
   }
 
   async obtener(tenantId: string, id: string) {

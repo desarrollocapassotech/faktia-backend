@@ -74,7 +74,7 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/comprobantes?estado=&clase=&clienteId=&numero=&fechaDesde=&fechaHasta=&ordenarPor=&dir=&pagina=&porPagina=` | Lista paginada `{ total, pagina, porPagina, items }`. `clase`: `FACTURA`, `NOTA_CREDITO` o `NOTA_DEBITO` (cualquier letra). `numero`: `15` o `00002-00000015`. Fechas de emisión `YYYY-MM-DD`, inclusive. `ordenarPor`: `comprobante`, `numero`, `fecha`, `cliente`, `total` o `estado` (`dir` `asc`/`desc`); sin él, los más recientes primero |
+| GET | `/api/comprobantes?estado=&clase=&clienteId=&numero=&fechaDesde=&fechaHasta=&ordenarPor=&dir=&pagina=&porPagina=` | Lista paginada `{ total, pagina, porPagina, items }`. `clase`: `FACTURA`, `NOTA_CREDITO` o `NOTA_DEBITO` (cualquier letra). `numero`: `15` o `00002-00000015`. Fechas de emisión `YYYY-MM-DD`, inclusive. `ordenarPor`: `comprobante`, `numero`, `fecha`, `cliente`, `total` o `estado` (`dir` `asc`/`desc`); sin él, los más recientes primero. `incluirRecibos=true` (lo usa la app; la API pública no) suma los recibos guardados como filas con `clase: "recibo"`, `tipo` `RECIBO_COBRO`/`RECIBO_PAGO` y `numeroTexto`; con `clase=RECIBO`, solo recibos |
 | POST | `/api/comprobantes` | Crea un borrador de factura. `tipo` opcional (`FACTURA_A/B/C`); si falta, se usa la letra sugerida |
 | GET | `/api/comprobantes/:id` | Detalle con líneas, alícuotas, cliente, notas asociadas, `letraSugerida` y `advertenciaLetra` |
 | PATCH | `/api/comprobantes/:id` | Edita un BORRADOR o RECHAZADO. Requiere `version` (lock optimista, `409` si cambió) |
@@ -96,6 +96,9 @@ Todos requieren sesión (Bearer) y operan sobre el tenant de la sesión.
 
 | Método | Ruta | Descripción |
 |---|---|---|
+| POST | `/api/recibos` | Crea (guarda) un recibo: el mismo body que `/api/recibos/pdf` más `clienteId?` (solo COBRO). Aparece en `GET /api/comprobantes?incluirRecibos=true`. `409` si ya hay un recibo de ese tipo con el mismo número |
+| GET | `/api/recibos/siguiente-numero?tipo=` | Número sugerido: el siguiente al del último recibo guardado de ese tipo (`0001-00000001` si no hay) |
+| GET | `/api/recibos/:id` · `/api/recibos/:id/pdf` | Recibo guardado y su PDF (se arma con la plantilla vigente) |
 | POST | `/api/recibos/pdf` | Genera un recibo en PDF, sin guardarlo. `{ tipo: COBRO \| PAGO, numero?, fecha, moneda, contraparte: { nombre, documento?, domicilio? }, items: [{ descripcion, cantidad?, importe }], total, medioPago?, observaciones?, comprobantesAplicados? (COBRO), periodo? (PAGO) }`. La parte del tenant (quien cobra o quien paga) sale de los datos del emisor; el estilo, de la plantilla PDF. `400` si el total no coincide con la suma de los conceptos |
 
 El generador vive en `src/modules/recibos/core/`: TypeScript puro (solo `pdfkit`), con su propio `package.json` (`@capassotech/recibos`) y tests. Un test falla si importa algo fuera de esa carpeta.

@@ -221,10 +221,16 @@ export class ListarComprobantesQuery {
   @Matches(PERIODO, { message: 'periodo debe tener formato YYYY-MM.' })
   periodo?: string;
 
-  /** Clase de comprobante, cualquier letra: FACTURA, NOTA_CREDITO o NOTA_DEBITO. */
+  /** Clase de comprobante, cualquier letra: FACTURA, NOTA_CREDITO o NOTA_DEBITO. RECIBO: solo recibos (con `incluirRecibos`). */
   @IsOptional()
-  @IsIn(CLASES_COMPROBANTE)
-  clase?: ClaseComprobante;
+  @IsIn([...CLASES_COMPROBANTE, 'RECIBO'])
+  clase?: ClaseComprobante | 'RECIBO';
+
+  /** El listado de la app suma los recibos guardados (la API pública no). */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
+  @IsBoolean()
+  incluirRecibos?: boolean;
 
   /** "00002-00000015" / "2-15" (punto de venta y número) o solo el número ("15"). */
   @IsOptional()

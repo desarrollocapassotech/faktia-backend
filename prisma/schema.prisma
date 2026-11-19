@@ -153,6 +153,7 @@ model Tenant {
   solicitudesIdem      SolicitudIdempotente[]
   webhookSuscripciones WebhookSuscripcion[]
   webhookEntregas      WebhookEntrega[]
+  recibos              Recibo[]
 
   @@map("tenants")
 }
@@ -363,6 +364,7 @@ model Cliente {
   tarifas      Tarifa[]
   items        ItemFacturable[]
   comprobantes Comprobante[]
+  recibos      Recibo[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, tipoDocumento, numeroDocumento])
@@ -583,6 +585,45 @@ model Comprobante {
   @@index([tenantId, clienteId])
   @@index([estado, updatedAt])
   @@map("comprobantes")
+}
+
+// ─────────────────────────────── Recibos ───────────────────────────────
+
+enum TipoRecibo {
+  COBRO // un cliente le paga al tenant
+  PAGO // el tenant le paga a un colaborador o proveedor
+}
+
+/// Recibo creado desde Faktia (no va a ARCA). Se guarda lo que hace falta para regenerar el PDF:
+/// el PDF se arma a pedido con la plantilla vigente. Aparece en el listado de comprobantes.
+model Recibo {
+  id                    String     @id @default(cuid())
+  tenantId              String
+  tenant                Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tipo                  TipoRecibo
+  numero                String? // lo pone el usuario ("0001-00000001"); único por tenant y tipo
+  fecha                 DateTime   @db.Date
+  moneda                Moneda     @default(ARS)
+  total                 Decimal    @db.Decimal(15, 2)
+  // Solo en COBRO, si se eligió un cliente cargado (la contraparte igual queda en el snapshot).
+  clienteId             String?
+  cliente               Cliente?   @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  contraparteNombre     String // quien paga (COBRO) o cobra (PAGO): columna aparte para ordenar el listado
+  contraparte           Json // { nombre, documento?, domicilio? }
+  items                 Json // [{ descripcion, cantidad?, importe }]
+  comprobantesAplicados Json? // solo COBRO: [{ descripcion, importe }]
+  periodo               String? // solo PAGO
+  medioPago             String?
+  observaciones         String?
+  creadoPorId           String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, tipo, numero]) // Postgres permite múltiples NULL
+  @@index([tenantId, fecha])
+  @@index([tenantId, clienteId])
+  @@map("recibos")
 }
 
 model ComprobanteLinea {

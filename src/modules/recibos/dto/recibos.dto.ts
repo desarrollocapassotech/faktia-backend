@@ -112,3 +112,17 @@ export class GenerarReciboDto {
   @MaxLength(60)
   periodo?: string;
 }
+
+/** Crear (guardar) un recibo: lo mismo que para el PDF, más el cliente si se eligió uno cargado. */
+export class CrearReciboDto extends GenerarReciboDto {
+  /** Solo COBRO: cliente de Faktia que paga (sus datos igual vienen en `contraparte`). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  clienteId?: string;
+}
+
+export class SiguienteNumeroQuery {
+  @IsIn(['COBRO', 'PAGO'])
+  tipo: 'COBRO' | 'PAGO';
+}

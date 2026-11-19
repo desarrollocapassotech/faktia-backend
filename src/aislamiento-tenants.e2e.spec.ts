@@ -115,6 +115,21 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     a.integracion = (await prisma.integracion.create({ data: { tenantId: t, nombre: 'I', keyPrefijo: `fct_${randomUUID().slice(0, 8)}`, keyHash: 'x', scopes: [] } })).id;
     a.webhook = (await prisma.webhookSuscripcion.create({ data: { tenantId: t, url: 'https://a.example.com/h', eventos: ['comprobante.emitido'], secretoCifrado: 'v1:x:x:x' } })).id;
     a.entrega = (await prisma.webhookEntrega.create({ data: { tenantId: t, suscripcionId: a.webhook, eventoId: 'evt_a', evento: 'comprobante.emitido', payload: {} } })).id;
+    a.recibo = (
+      await prisma.recibo.create({
+        data: {
+          tenantId: t,
+          tipo: 'COBRO',
+          numero: '0001-00000001',
+          fecha: new Date('2026-09-29'),
+          total: '100',
+          clienteId: a.cliente,
+          contraparteNombre: 'Cliente A',
+          contraparte: { nombre: 'Cliente A' },
+          items: [{ descripcion: 'x', cantidad: '1', importe: '100' }],
+        },
+      })
+    ).id;
 
     // Empresa B: sesión de usuario y API key con todos los permisos.
     const tb = await crearTenant('b');
@@ -138,6 +153,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
       await prisma.webhookEntrega.deleteMany({ where: { tenantId: id } });
       await prisma.itemFacturable.deleteMany({ where: { tenantId: id } });
       await prisma.comprobante.deleteMany({ where: { tenantId: id } });
+      await prisma.recibo.deleteMany({ where: { tenantId: id } });
       await prisma.importacion.deleteMany({ where: { tenantId: id } });
       await prisma.tenant.delete({ where: { id } });
     }
@@ -174,6 +190,10 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['POST', `/configuracion/webhooks/${a.webhook}/rotar-secreto`],
     ['POST', `/configuracion/webhooks/${a.webhook}/probar`],
     ['POST', `/configuracion/webhooks/entregas/${a.entrega}/reenviar`],
+    ['GET', `/recibos/${a.recibo}`],
+    ['GET', `/recibos/${a.recibo}/pdf`],
+    // Un recibo de B no puede apuntar a un cliente de A (FK compuesta).
+    ['POST', '/recibos', { tipo: 'COBRO', fecha: '2026-09-29', moneda: 'ARS', clienteId: a.cliente, contraparte: { nombre: 'x' }, items: [{ descripcion: 'x', importe: '1' }], total: '1' }],
   ];
 
   it('con la sesión de otra empresa, ningún endpoint con id toca recursos ajenos', async () => {
@@ -212,7 +232,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   });
 
   it('los listados de B no muestran nada de A', async () => {
-    const rutas = ['/clientes', '/comprobantes', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta'];
+    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta'];
     const idsA = Object.values(a);
     const filtrados: string[] = [];
     for (const ruta of rutas) {
