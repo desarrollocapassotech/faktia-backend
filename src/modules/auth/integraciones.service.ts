@@ -82,7 +82,7 @@ export class IntegracionesService {
   async contextoDeIntegracion(id: string): Promise<AuthContext> {
     const integracion = await this.prisma.integracion.findUnique({
       where: { id },
-      select: { id: true, tenantId: true, origen: true, scopes: true, revocadaEn: true, ultimoUsoEn: true, tenant: { select: { activo: true } } },
+      select: { id: true, tenantId: true, origen: true, scopes: true, revocadaEn: true, ultimoUsoEn: true, tenant: { select: { activo: true, modulosHabilitados: true } } },
     });
     if (!integracion || integracion.revocadaEn || !integracion.tenant.activo) {
       throw new UnauthorizedException(CLAVE_INVALIDA);
@@ -96,6 +96,7 @@ export class IntegracionesService {
       integracionId: integracion.id,
       origenIntegracion: integracion.origen,
       scopes: integracion.scopes,
+      modulos: integracion.tenant.modulosHabilitados,
     };
   }
 
@@ -113,7 +114,7 @@ export class IntegracionesService {
         scopes: true,
         revocadaEn: true,
         ultimoUsoEn: true,
-        tenant: { select: { activo: true } },
+        tenant: { select: { activo: true, modulosHabilitados: true } },
       },
     });
     // Se compara el hash aunque no exista, para no revelar por tiempo qué prefijos son válidos.
@@ -130,6 +131,7 @@ export class IntegracionesService {
       integracionId: integracion.id,
       origenIntegracion: integracion.origen,
       scopes: integracion.scopes,
+      modulos: integracion.tenant.modulosHabilitados,
     };
   }
 }

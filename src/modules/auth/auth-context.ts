@@ -11,6 +11,8 @@ export interface AuthContext {
   /** Solo integraciones: origen con el que se registran sus ítems (TRACKER, API, …). */
   origenIntegracion?: 'TRACKER' | 'API' | 'EXCEL' | 'MANUAL';
   scopes: string[];
+  /** Módulos habilitados de la empresa (shared/modulos). Las rutas con @Modulo(...) los exigen. */
+  modulos?: string[];
 }
 
 /** Payload del JWT de sesión. Claves cortas a propósito. */

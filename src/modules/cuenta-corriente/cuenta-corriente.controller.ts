@@ -1,8 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { CurrentAuth, type AuthContext } from '../auth';
+import { CurrentAuth, Modulo, type AuthContext } from '../auth';
 import { CuentaCorrienteService } from './cuenta-corriente.service';
 import { ActualizarMovimientoDto, CrearImputacionDto, CrearMovimientoDto, ResumenQuery } from './dto/cuenta-corriente.dto';
 
+@Modulo('cuenta-corriente')
 @Controller('cuenta-corriente')
 export class CuentaCorrienteController {
   constructor(private readonly cc: CuentaCorrienteService) {}

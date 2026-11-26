@@ -29,3 +29,11 @@ export function normalizarDocumento(
     ? { ok: true, numero: digitos }
     : { ok: false, error: `El ${tipo} ${numero} no es válido (revisá el dígito verificador).` };
 }
+
+/**
+ * Clave que impide repetir un documento dentro de la empresa. Sin documento (consumidor final o
+ * cliente del que solo se tiene el nombre) no hay clave: puede haber varios.
+ */
+export function claveDocumento(tipo: TipoDocumento, numero: string): string | null {
+  return tipo === 'CONSUMIDOR_FINAL' || numero === '0' ? null : `${tipo}:${numero}`;
+}

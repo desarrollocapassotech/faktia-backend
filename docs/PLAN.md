@@ -260,6 +260,21 @@ Verificado en verde: 238 tests unitarios, los e2e de aislamiento y de la API pú
 - `npm audit` del backend marca 25 vulnerabilidades (en su mayoría de dependencias de desarrollo): revisar antes de producción.
 - Si cambia el certificado mientras un comprobante está PENDIENTE_VERIFICACION, la verificación usa las credenciales nuevas (caso borde).
 
+### Fase Ale Herrería (desde 2026-11-26)
+
+Implementación de `docs/DOC_FUNCIONAL.md` para el primer cliente (Ale Herrería), con nombres genéricos. Detalle, decisiones y pendientes en `docs/REVISION.md`.
+
+| Subfase | Estado |
+|---|---|
+| 1. Base: módulos por empresa, etiquetas de proyecto, firma, clientes sin documento | ✅ Hecha (migración `20261126120000_ale_base`) |
+| 2. Proyectos + cuenta corriente + recibos | ⏳ Pendiente |
+| 3. Avisos por email | ⏳ Pendiente |
+| 4. Presupuestos | ⏳ Pendiente |
+| 5. Materiales + proveedores | ⏳ Pendiente |
+| 6. Documentación | ⏳ Pendiente |
+
+Para retomar: Postgres local (`initdb` + `pg_ctl`, usuario `faktia`), `.env` apuntando a él, `npx prisma migrate deploy` y `npx jest --ci`.
+
 ## 4. Datos operativos
 
 - **Neon:** proyecto `facturador` (id `rough-mud-84399020`), organización CapassoTech, región `aws-sa-east-1`. Ramas `production` y `develop` (`br-divine-pine-b6bacfps`). El `.env` del backend apunta a `develop`.

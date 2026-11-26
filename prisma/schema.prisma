@@ -130,6 +130,14 @@ model Tenant {
   camposDeArca       String[]      @default([])
   padronVerificadoEn DateTime?
   ambienteArca       AmbienteArca  @default(HOMOLOGACION)
+  // Contacto que va en el encabezado de los documentos (presupuestos, recibos, listados).
+  telefono           String?
+  emailContacto      String?
+  // Módulos habilitados (shared/modulos/modulos.ts). El menú y el AuthGuard (@Modulo) los respetan.
+  modulosHabilitados String[]      @default(["comprobantes", "recibos", "recibos-pago", "cuenta-corriente", "proyectos", "presupuestos", "materiales", "importaciones", "integraciones", "webhooks"])
+  // Cómo se llama la entidad Proyecto en pantalla y en los documentos (para Ale Herrería: "Obra" / "Obras").
+  etiquetaProyecto       String    @default("Proyecto")
+  etiquetaProyectoPlural String    @default("Proyectos")
   activo             Boolean       @default(true)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -206,6 +214,8 @@ model PlantillaPdf {
   colorPrimario    String   @default("#111827")
   colorSecundario  String   @default("#6B7280")
   textoPie         String?
+  // Firma de los documentos que no van a ARCA (presupuestos, recibos, listados): "ATTE. ALEXIS NAHUEL HERMAN".
+  firmaTexto       String?
   mostrarDuplicado Boolean  @default(true)
   updatedAt        DateTime @updatedAt
 
@@ -349,7 +359,9 @@ model Cliente {
   tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   razonSocial        String
   tipoDocumento      TipoDocumento
-  numeroDocumento    String // "0" para consumidor final anónimo
+  numeroDocumento    String // "0" para consumidor final anónimo o cliente sin documento
+  // "TIPO:NUMERO" para que no se repita un documento en la empresa; null sin documento (puede haber varios).
+  claveDocumento     String?
   condicionIva       CondicionIva
   domicilio          String?
   email              String?
@@ -370,7 +382,8 @@ model Cliente {
   movimientosCc MovimientoCuentaCorriente[]
 
   @@unique([tenantId, id])
-  @@unique([tenantId, tipoDocumento, numeroDocumento])
+  @@unique([tenantId, claveDocumento])
+  @@index([tenantId, tipoDocumento, numeroDocumento])
   @@map("clientes")
 }
 

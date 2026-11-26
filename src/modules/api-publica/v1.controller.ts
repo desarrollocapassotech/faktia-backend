@@ -17,7 +17,7 @@ import {
 import { ApiBody, ApiHeader, ApiOkResponse, ApiOperation, ApiProduces, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { ApiKey, CurrentAuth, type AuthContext } from '../auth';
+import { ApiKey, CurrentAuth, Modulo, type AuthContext } from '../auth';
 import { ActualizarClienteDto, ClientesService } from '../clientes';
 import {
   ActualizarBorradorDto,
@@ -78,6 +78,7 @@ const comprobante = (c: unknown) => comprobantePublico(c as ComprobanteInterno);
 @UseGuards(ThrottlerGuard)
 @Throttle({ default: { limit: 300, ttl: 60_000 } })
 @UseInterceptors(IdempotenciaInterceptor)
+@Modulo('integraciones')
 @Controller('v1')
 export class V1Controller {
   constructor(

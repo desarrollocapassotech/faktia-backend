@@ -12,7 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CurrentAuth, type AuthContext } from '../auth';
+import { CurrentAuth, Modulo, type AuthContext } from '../auth';
 import { PlantillasMapeoService } from './adapters/excel/plantillas-mapeo.service';
 import {
   ActualizarPlantillaMapeoDto,
@@ -31,6 +31,7 @@ function archivo(a: Express.Multer.File | undefined) {
   return { buffer: a.buffer, nombre: Buffer.from(a.originalname, 'latin1').toString('utf8') };
 }
 
+@Modulo('importaciones')
 @Controller('importaciones')
 export class ImportacionesController {
   constructor(private readonly importaciones: ImportacionesService) {}
@@ -96,6 +97,7 @@ export class ImportacionesController {
   }
 }
 
+@Modulo('importaciones')
 @Controller('configuracion')
 export class ConfiguracionImportacionesController {
   constructor(private readonly plantillas: PlantillasMapeoService) {}

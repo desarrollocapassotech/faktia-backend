@@ -4,7 +4,8 @@ import type { Request } from 'express';
 import type { AuthContext } from './auth-context';
 import { AuthService } from './auth.service';
 import type { Scope } from './claves';
-import { API_KEY_SCOPES, IS_PUBLIC_KEY } from './decorators';
+import { API_KEY_SCOPES, IS_PUBLIC_KEY, MODULO_KEY } from './decorators';
+import { MODULO_DESHABILITADO, type ModuloFaktia } from '../../shared/modulos/modulos';
 import { FirebaseFederacionService } from './firebase-federacion.service';
 import { IntegracionesService } from './integraciones.service';
 
@@ -42,11 +43,13 @@ export class AuthGuard implements CanActivate {
         if (!federado) throw new UnauthorizedException('Falta el header X-Api-Key.');
         this.exigirScopes(federado, scopes);
         request.auth = federado;
+        this.exigirModulo(federado, targets);
         return true;
       }
       const auth = await this.integraciones.validarApiKey(clave);
       this.exigirScopes(auth, scopes);
       const email = request.headers['x-usuario-email'];
+      this.exigirModulo(auth, targets);
       request.auth = typeof email === 'string' && email.trim() ? await this.integraciones.actuarComo(auth, email) : auth;
       return true;
     }
@@ -57,7 +60,14 @@ export class AuthGuard implements CanActivate {
     }
 
     request.auth = await this.authService.validarSesion(header.slice('Bearer '.length).trim());
+    this.exigirModulo(request.auth, targets);
     return true;
+  }
+
+  /** Rutas de un módulo que la empresa no tiene habilitado: 403 (el frontend ya no las muestra). */
+  private exigirModulo(auth: AuthContext, targets: Parameters<Reflector['getAllAndOverride']>[1]) {
+    const modulo = this.reflector.getAllAndOverride<ModuloFaktia | undefined>(MODULO_KEY, targets);
+    if (modulo && !(auth.modulos ?? []).includes(modulo)) throw new ForbiddenException(MODULO_DESHABILITADO);
   }
 
   private exigirScopes(auth: AuthContext, scopes: Scope[]) {

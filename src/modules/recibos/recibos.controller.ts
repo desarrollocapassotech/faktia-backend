@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { CurrentAuth, Public, type AuthContext } from '../auth';
+import { CurrentAuth, Modulo, Public, type AuthContext } from '../auth';
+import { MODULO_DESHABILITADO } from '../../shared/modulos/modulos';
 import type { ReciboOutput } from './core';
 import { CrearReciboDto, GenerarReciboDto, SiguienteNumeroQuery, VerificarReciboQuery } from './dto/recibos.dto';
 import { RecibosService } from './recibos.service';
@@ -13,6 +14,12 @@ function enviarPdf(res: Response, { pdf, filename }: ReciboOutput) {
   res.send(pdf);
 }
 
+/** Los recibos de pago se ocultan por empresa (módulo recibos-pago). */
+function exigirTipoHabilitado(auth: AuthContext, tipo: 'COBRO' | 'PAGO') {
+  if (tipo === 'PAGO' && !(auth.modulos ?? []).includes('recibos-pago')) throw new ForbiddenException(MODULO_DESHABILITADO);
+}
+
+@Modulo('recibos')
 @Controller('recibos')
 export class RecibosController {
   constructor(private readonly recibos: RecibosService) {}
@@ -20,6 +27,7 @@ export class RecibosController {
   /** Guarda el recibo: aparece en el listado de comprobantes. El PDF se pide con GET :id/pdf. */
   @Post()
   crear(@CurrentAuth() auth: AuthContext, @Body() dto: CrearReciboDto) {
+    exigirTipoHabilitado(auth, dto.tipo);
     return this.recibos.crear(auth, dto);
   }
 
@@ -27,6 +35,7 @@ export class RecibosController {
   @Post('pdf')
   @HttpCode(200)
   async pdf(@CurrentAuth() auth: AuthContext, @Body() dto: GenerarReciboDto, @Res() res: Response) {
+    exigirTipoHabilitado(auth, dto.tipo);
     enviarPdf(res, await this.recibos.generar(auth.tenantId, dto));
   }
 

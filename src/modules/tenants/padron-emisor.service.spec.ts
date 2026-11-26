@@ -25,6 +25,8 @@ function emisor(over: Partial<EmisorDatos> = {}): EmisorDatos {
     ingresosBrutos: null,
     inicioActividades: null,
     ambienteArca: 'HOMOLOGACION',
+    telefono: null,
+    emailContacto: null,
     camposDeArca: [],
     datosFiscalesCompletos: true,
     ...over,

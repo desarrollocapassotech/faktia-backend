@@ -2,7 +2,7 @@ import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@ne
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from './auth.guard';
 import type { AuthService } from './auth.service';
-import { API_KEY_SCOPES, IS_PUBLIC_KEY } from './decorators';
+import { API_KEY_SCOPES, IS_PUBLIC_KEY, MODULO_KEY } from './decorators';
 import type { FirebaseFederacionService } from './firebase-federacion.service';
 import type { IntegracionesService } from './integraciones.service';
 
@@ -15,9 +15,10 @@ function contexto(headers: Record<string, string>, request: Record<string, unkno
   } as unknown as ExecutionContext;
 }
 
-function reflector(meta: { publica?: boolean; scopes?: string[] }) {
+function reflector(meta: { publica?: boolean; scopes?: string[]; modulo?: string }) {
   return {
-    getAllAndOverride: (key: string) => (key === IS_PUBLIC_KEY ? meta.publica : key === API_KEY_SCOPES ? meta.scopes : undefined),
+    getAllAndOverride: (key: string) =>
+      key === IS_PUBLIC_KEY ? meta.publica : key === API_KEY_SCOPES ? meta.scopes : key === MODULO_KEY ? meta.modulo : undefined,
   } as unknown as Reflector;
 }
 
@@ -25,13 +26,13 @@ describe('AuthGuard', () => {
   const authService = {
     validarSesion: jest.fn(async (token: string) => {
       if (token !== 'ok') throw new UnauthorizedException();
-      return { tenantId: 't1', tipo: 'usuario', usuarioId: 'u1', scopes: [] };
+      return { tenantId: 't1', tipo: 'usuario', usuarioId: 'u1', scopes: [], modulos: ['recibos', 'proyectos'] };
     }),
   } as unknown as AuthService;
   const integraciones = {
     validarApiKey: jest.fn(async (clave: string) => {
       if (clave !== 'fct_buena') throw new UnauthorizedException();
-      return { tenantId: 't1', tipo: 'integracion', integracionId: 'i1', scopes: ['acceso:emitir'] };
+      return { tenantId: 't1', tipo: 'integracion', integracionId: 'i1', scopes: ['acceso:emitir'], modulos: ['comprobantes'] };
     }),
   } as unknown as IntegracionesService;
   const federacion = {
@@ -41,7 +42,7 @@ describe('AuthGuard', () => {
         : null,
     ),
   } as unknown as FirebaseFederacionService;
-  const guard = (meta: { publica?: boolean; scopes?: string[] }) =>
+  const guard = (meta: { publica?: boolean; scopes?: string[]; modulo?: string }) =>
     new AuthGuard(reflector(meta), authService, integraciones, federacion);
 
   it('deja pasar rutas @Public() sin header', async () => {
@@ -56,6 +57,20 @@ describe('AuthGuard', () => {
     const request: Record<string, unknown> = {};
     await guard({}).canActivate(contexto({ authorization: 'Bearer ok' }, request));
     expect(request.auth).toMatchObject({ tenantId: 't1', usuarioId: 'u1' });
+  });
+
+  describe('módulos por empresa (@Modulo)', () => {
+    it('deja pasar si la empresa tiene el módulo', async () => {
+      await expect(guard({ modulo: 'proyectos' }).canActivate(contexto({ authorization: 'Bearer ok' }))).resolves.toBe(true);
+    });
+    it('responde 403 si la empresa no lo tiene habilitado', async () => {
+      await expect(guard({ modulo: 'importaciones' }).canActivate(contexto({ authorization: 'Bearer ok' }))).rejects.toThrow(ForbiddenException);
+    });
+    it('también con API key (la API pública es el módulo integraciones)', async () => {
+      await expect(
+        guard({ scopes: ['acceso:emitir'], modulo: 'integraciones' }).canActivate(contexto({ 'x-api-key': 'fct_buena' })),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 
   it('una API key no sirve en rutas de usuario', async () => {
