@@ -80,6 +80,8 @@ export interface PreferenciasEmpresa {
   modulos: string[];
   etiquetaProyecto: string;
   etiquetaProyectoPlural: string;
+  avisosEmail: boolean;
+  diasAvisoVencimiento: number;
 }
 
 function detectarMimeImagen(buf: Buffer): 'image/png' | 'image/jpeg' | null {
@@ -332,19 +334,39 @@ export class TenantsService {
   async obtenerPreferencias(tenantId: string): Promise<PreferenciasEmpresa> {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { modulosHabilitados: true, etiquetaProyecto: true, etiquetaProyectoPlural: true },
+      select: { modulosHabilitados: true, etiquetaProyecto: true, etiquetaProyectoPlural: true, avisosEmail: true, diasAvisoVencimiento: true },
     });
     if (!t) throw new NotFoundException('Empresa no encontrada.');
-    return { modulos: t.modulosHabilitados, etiquetaProyecto: t.etiquetaProyecto, etiquetaProyectoPlural: t.etiquetaProyectoPlural };
+    return {
+      modulos: t.modulosHabilitados,
+      etiquetaProyecto: t.etiquetaProyecto,
+      etiquetaProyectoPlural: t.etiquetaProyectoPlural,
+      avisosEmail: t.avisosEmail,
+      diasAvisoVencimiento: t.diasAvisoVencimiento,
+    };
   }
 
   /** Las etiquetas las puede cambiar la empresa; los módulos, solo el administrador de Faktia (script). */
   async actualizarPreferencias(tenantId: string, dto: ActualizarPreferenciasDto): Promise<PreferenciasEmpresa> {
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { etiquetaProyecto: dto.etiquetaProyecto?.trim(), etiquetaProyectoPlural: dto.etiquetaProyectoPlural?.trim() },
+      data: {
+        etiquetaProyecto: dto.etiquetaProyecto?.trim(),
+        etiquetaProyectoPlural: dto.etiquetaProyectoPlural?.trim(),
+        avisosEmail: dto.avisosEmail,
+        diasAvisoVencimiento: dto.diasAvisoVencimiento,
+      },
     });
     return this.obtenerPreferencias(tenantId);
+  }
+
+  /** Empresas activas que reciben el resumen diario de vencimientos (con cuenta corriente habilitada). */
+  async empresasConAvisos(): Promise<Array<{ id: string; diasAvisoVencimiento: number; nombre: string }>> {
+    const filas = await this.prisma.tenant.findMany({
+      where: { activo: true, avisosEmail: true, modulosHabilitados: { has: 'cuenta-corriente' } },
+      select: { id: true, diasAvisoVencimiento: true, nombreFantasia: true },
+    });
+    return filas.map((f) => ({ id: f.id, diasAvisoVencimiento: f.diasAvisoVencimiento, nombre: f.nombreFantasia }));
   }
 
   // ── Plantilla PDF ────────────────────────────────────────────────────────

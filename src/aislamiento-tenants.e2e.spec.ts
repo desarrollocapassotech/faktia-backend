@@ -277,7 +277,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   });
 
   it('los listados de B no muestran nada de A', async () => {
-    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen', '/proyectos'];
+    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen', '/proyectos', '/avisos/vista-previa', '/avisos/historial'];
     const idsA = Object.values(a);
     const filtrados: string[] = [];
     for (const ruta of rutas) {

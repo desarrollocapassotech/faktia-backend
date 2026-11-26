@@ -27,3 +27,13 @@ services:
         sync: false
       - key: AFIP_SDK_API_KEY
         sync: false
+      - key: SMTP_HOST # avisos por email; sin esto solo se registran en el log
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false

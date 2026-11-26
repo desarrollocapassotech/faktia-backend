@@ -35,6 +35,15 @@
 - Script `npm run datos-ejemplo-ale` (empresa de ejemplo con los casos del doc, usando los servicios reales).
 - Tests: `domain/proyecto.spec.ts` (casos de Costa Doll, Wilson Carrillo, Municipalidad), `estado-proyecto.spec.ts`, e2e `src/ale-proyectos.e2e.spec.ts` y el de aislamiento ampliado.
 
+### Fase 3: Avisos por email
+
+- **Puerto `EmailPort`** (`src/shared/email/email.ts`): adaptador SMTP (nodemailer 10.4, configurable por `SMTP_*`) y uno que solo registra en el log (el default sin SMTP). `EMAIL_TRANSPORTE=log|smtp` lo fuerza.
+- **Módulo `avisos`:** resumen diario con `@nestjs/schedule` a las 8 (hora de Argentina) para cada empresa con avisos activos y cuenta corriente habilitada. Va a **todos los usuarios activos** de la empresa, con lo vencido y lo que vence en los próximos `diasAvisoVencimiento` días (default 3). Trabaja sobre lo exigible (certificaciones, no lo que falta certificar). Solo se manda si hay algo.
+- **Una vez por día:** tabla `avisos_email` con unique `(tenantId, fecha)`; se reserva el día antes de mandar y se libera si el envío falla.
+- **Pantalla:** Configuración → Preferencias: activar, días de anticipación, vista previa de hoy, "Mandarme una prueba" y último envío. Endpoints `GET /avisos/vista-previa`, `GET /avisos/historial`, `POST /avisos/probar`.
+- `Tenant.avisosEmail`, `Tenant.diasAvisoVencimiento`. `UsuariosService` exportado por `auth` (solo emails de usuarios activos).
+- Tests: `correo.spec.ts`, `email.spec.ts`, e2e `src/ale-avisos.e2e.spec.ts`.
+
 ## 2. Decisiones tomadas por mi cuenta
 
 | # | Tema | Decisión |
@@ -52,6 +61,9 @@
 | R12 | Número de recibo de una entrega | El siguiente al último recibo de cobro (como ya sugería la pantalla de recibos), editable en la API. |
 | R13 | Anulación | La anulación se registra con la fecha del día en que se sincroniza. El recibo anulado sigue en el listado, con su PDF marcado. Solo se anulan recibos de cobro desde la pantalla. |
 | R14 | Recibos sueltos | La pantalla general de recibos (Nuevo comprobante → Recibo) sigue sin obra; las entregas de obra se registran desde la obra. |
+| R15 | Avisos (pregunta abierta del doc §14) | Destinatarios: todos los usuarios activos de la empresa. Resumen diario con lo vencido y lo que vence en los próximos 3 días (configurable por empresa). A las 8 de Argentina. Si no hay nada, no se manda. |
+| R16 | Render free | **El plan free de Render duerme el servidor sin tráfico y el cron de las 8 no corre.** Opciones: pasar a un plan pago, un cron externo que pegue a `/api/health` unos minutos antes (por ejemplo, cron-job.org a las 7:55) o un endpoint protegido que dispare el envío. Lo dejo anotado sin elegir. |
+| R17 | nodemailer | Versión 10.4.0 fija: las anteriores a 10.1.4 tienen avisos de seguridad y las más nuevas tienen menos de dos semanas. |
 | R7 | Clientes sin documento | Se siguen guardando como `CONSUMIDOR_FINAL` con número "0" (lo que ya entendía ARCA). En pantalla el tipo se llama "Sin documento". |
 
 ## 3. BLOQUEANTES
@@ -61,6 +73,8 @@ Ninguno por ahora.
 ## 4. Pendiente local
 
 - [ ] Aplicar las migraciones nuevas en la base (con tu OK): `npx prisma migrate deploy`.
+- [ ] Configurar SMTP en `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`), reiniciar y en Configuración → Preferencias tocar "Mandarme una prueba". Revisar que llegue y cómo se ve (Gmail y celular).
+- [ ] Decidir cómo despertar el servidor para el cron de las 8 en Render (ver R16) y cargar las `SMTP_*` en Render.
 - [ ] Probar la cotización real de ARCA: en una obra en dólares sin TC fijo, "Registrar entrega" en pesos. Tiene que sugerir el TC de `FEParamGetCotizacion` (necesita `AFIP_SDK_API_KEY`).
 
 ## 5. Cómo revisarlo

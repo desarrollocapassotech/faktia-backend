@@ -73,6 +73,18 @@ export class ActualizarPreferenciasDto {
   @IsNotEmpty({ message: 'La etiqueta no puede quedar vacía.' })
   @MaxLength(40)
   etiquetaProyectoPlural?: string;
+
+  /** Resumen diario por email con lo vencido y lo que vence pronto. */
+  @IsOptional()
+  @IsBoolean()
+  avisosEmail?: boolean;
+
+  /** Cuántos días antes del vencimiento entra en el aviso. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  diasAvisoVencimiento?: number;
 }
 
 export class CrearPuntoVentaDto {

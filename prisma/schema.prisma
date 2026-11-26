@@ -138,6 +138,9 @@ model Tenant {
   // Cómo se llama la entidad Proyecto en pantalla y en los documentos (para Ale Herrería: "Obra" / "Obras").
   etiquetaProyecto       String        @default("Proyecto")
   etiquetaProyectoPlural String        @default("Proyectos")
+  // Resumen diario por email a los usuarios con lo vencido y lo que vence en los próximos días.
+  avisosEmail            Boolean       @default(true)
+  diasAvisoVencimiento   Int           @default(3)
   activo                 Boolean       @default(true)
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
@@ -166,6 +169,7 @@ model Tenant {
   imputacionesCc       ImputacionCuentaCorriente[]
   proyectos            Proyecto[]
   certificaciones      CertificacionHito[]
+  avisosEnviados       AvisoEmail[]
 
   @@map("tenants")
 }
@@ -874,4 +878,22 @@ model ArcaLog {
   @@index([tenantId, comprobanteId])
   @@index([tenantId, createdAt])
   @@map("arca_logs")
+}
+
+// ─────────────────────────────── Avisos ───────────────────────────────
+
+/// Resumen diario de vencimientos enviado (uno por empresa y día: el job no lo repite si se reinicia).
+model AvisoEmail {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fecha         DateTime @db.Date
+  destinatarios String[]
+  vencidos      Int
+  proximos      Int
+  transporte    String // smtp | log
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, fecha])
+  @@map("avisos_email")
 }
