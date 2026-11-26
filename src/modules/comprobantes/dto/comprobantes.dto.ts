@@ -98,6 +98,12 @@ export class CrearBorradorDto {
   @MaxLength(1000)
   observaciones?: string | null;
 
+  /** Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  proyectoId?: string | null;
+
   @ValidateNested({ each: true })
   @Type(() => LineaDto)
   @ArrayMinSize(1, { message: 'El comprobante necesita al menos una línea.' })
@@ -153,6 +159,12 @@ export class ActualizarBorradorDto {
   @IsString()
   @MaxLength(1000)
   observaciones?: string | null;
+
+  /** Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  proyectoId?: string | null;
 
   @IsOptional()
   @IsString()

@@ -14,7 +14,8 @@ export interface ContenidoRecibo {
   items: Array<{ descripcion: string; cantidad: string; importe: string }>;
   total: string; // "$ 1.234,50"
   comprobantesAplicados: Array<{ descripcion: string; importe: string }>;
-  datosExtra: Array<[string, string]>; // medio de pago
+  datosExtra: Array<[string, string]>; // medio de pago y los que pida quien arma el recibo
+  secciones: Array<{ titulo: string; filas: Array<{ texto: string; detalle: string; importe: string; destacado: boolean }> }>;
   observaciones: string | null;
   firma: { etiqueta: string; nombre: string; documento: string | null };
   filename: string;
@@ -30,7 +31,8 @@ function limpio(v: string | undefined): string | undefined {
 
 function validarParte(p: Parte | undefined, rol: string): Parte {
   if (!p || !limpio(p.nombre)) throw new ReciboInvalidoError(`Falta el nombre de ${rol}.`);
-  return { nombre: p.nombre.trim(), documento: limpio(p.documento), domicilio: limpio(p.domicilio) };
+  const detalle = (p.detalle ?? []).map((d) => limpio(d)).filter((d): d is string => Boolean(d));
+  return { nombre: p.nombre.trim(), documento: limpio(p.documento), domicilio: limpio(p.domicilio), ...(detalle.length ? { detalle } : {}) };
 }
 
 function centavos(v: string, donde: string): bigint {
@@ -95,6 +97,16 @@ export function armarContenido(input: ReciboInput): ContenidoRecibo {
   const numero = limpio(input.numero) ?? null;
   const medioPago = limpio(input.medioPago);
   const datosExtra: Array<[string, string]> = [];
+  const extra = (input.datosExtra ?? [])
+    .map(([k, v]) => [limpio(k), limpio(v)] as const)
+    .filter((x): x is readonly [string, string] => Boolean(x[0] && x[1]))
+    .map(([k, v]): [string, string] => [k, v]);
+  const secciones = (input.secciones ?? [])
+    .filter((s) => limpio(s.titulo) && s.filas?.length)
+    .map((s) => ({
+      titulo: s.titulo.trim(),
+      filas: s.filas.map((f) => ({ texto: f.texto?.trim() ?? '', detalle: limpio(f.detalle) ?? '', importe: f.importe?.trim() ?? '', destacado: Boolean(f.destacado) })),
+    }));
 
   if (input.tipo === 'COBRO') {
     const emisor = validarParte(input.emisor, 'quien emite el recibo');
@@ -105,6 +117,7 @@ export function armarContenido(input: ReciboInput): ContenidoRecibo {
       return { descripcion, importe: `${simbolo} ${formatearCentavos(centavos(c.importe, `Comprobante aplicado ${i + 1}`))}` };
     });
     if (medioPago) datosExtra.push(['Medio de pago', medioPago]);
+    datosExtra.push(...extra);
     return {
       titulo: 'RECIBO DE COBRO',
       encabezado: emisor,
@@ -115,6 +128,7 @@ export function armarContenido(input: ReciboInput): ContenidoRecibo {
       total: totalTexto,
       comprobantesAplicados: aplicados,
       datosExtra,
+      secciones,
       observaciones: limpio(input.observaciones) ?? null,
       firma: { etiqueta: 'Firma y aclaración de quien recibe el pago', nombre: emisor.nombre, documento: emisor.documento ?? null },
       filename: `Recibo-Cobro_${slug(numero ?? input.fecha)}_${slug(pagador.nombre)}.pdf`,
@@ -125,6 +139,7 @@ export function armarContenido(input: ReciboInput): ContenidoRecibo {
   const beneficiario = validarParte(input.beneficiario, 'quien cobra');
   const periodo = limpio(input.periodo); // va en el texto del recibo
   if (medioPago) datosExtra.push(['Medio de pago', medioPago]);
+  datosExtra.push(...extra);
   return {
     titulo: 'RECIBO DE PAGO',
     encabezado: pagador,
@@ -137,6 +152,7 @@ export function armarContenido(input: ReciboInput): ContenidoRecibo {
     total: totalTexto,
     comprobantesAplicados: [],
     datosExtra,
+    secciones,
     observaciones: limpio(input.observaciones) ?? null,
     firma: { etiqueta: 'Firma y aclaración del beneficiario', nombre: beneficiario.nombre, documento: beneficiario.documento ?? null },
     filename: `Recibo-Pago_${slug(numero ?? input.fecha)}_${slug(beneficiario.nombre)}.pdf`,

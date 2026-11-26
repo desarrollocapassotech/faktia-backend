@@ -22,6 +22,7 @@
     "crear-tenant": "ts-node scripts/crear-tenant.ts",
     "crear-usuario": "ts-node scripts/crear-usuario.ts",
     "configurar-modulos": "ts-node scripts/configurar-modulos.ts",
+    "datos-ejemplo-ale": "ts-node scripts/datos-ejemplo-ale.ts",
     "postinstall": "prisma generate",
     "openapi": "nest build && node dist/generar-openapi.js",
     "deps": "depcruise src --config .dependency-cruiser.cjs"

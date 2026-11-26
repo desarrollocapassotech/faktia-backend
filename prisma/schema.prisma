@@ -114,33 +114,33 @@ enum EstadoWebhookEntrega {
 // ─────────────────────────────── Tenants ───────────────────────────────
 
 model Tenant {
-  id                 String        @id @default(cuid())
-  slug               String        @unique
-  nombreFantasia     String
+  id                     String        @id @default(cuid())
+  slug                   String        @unique
+  nombreFantasia         String
   // Datos fiscales: null en una empresa recién registrada; se completan en Configuración
   // y son obligatorios para facturar (TenantsService.obtenerEmisorCompleto).
-  razonSocial        String?
-  cuit               String?       @unique // 11 dígitos, sin guiones
-  condicionIva       CondicionIva?
-  domicilioFiscal    String?
-  ingresosBrutos     String?
-  inicioActividades  DateTime?     @db.Date
+  razonSocial            String?
+  cuit                   String?       @unique // 11 dígitos, sin guiones
+  condicionIva           CondicionIva?
+  domicilioFiscal        String?
+  ingresosBrutos         String?
+  inicioActividades      DateTime?     @db.Date
   // Campos del emisor que salieron del padrón de ARCA ("razonSocial" | "condicionIva" |
   // "domicilioFiscal"): no se editan a mano (PadronEmisorService).
-  camposDeArca       String[]      @default([])
-  padronVerificadoEn DateTime?
-  ambienteArca       AmbienteArca  @default(HOMOLOGACION)
+  camposDeArca           String[]      @default([])
+  padronVerificadoEn     DateTime?
+  ambienteArca           AmbienteArca  @default(HOMOLOGACION)
   // Contacto que va en el encabezado de los documentos (presupuestos, recibos, listados).
-  telefono           String?
-  emailContacto      String?
+  telefono               String?
+  emailContacto          String?
   // Módulos habilitados (shared/modulos/modulos.ts). El menú y el AuthGuard (@Modulo) los respetan.
-  modulosHabilitados String[]      @default(["comprobantes", "recibos", "recibos-pago", "cuenta-corriente", "proyectos", "presupuestos", "materiales", "importaciones", "integraciones", "webhooks"])
+  modulosHabilitados     String[]      @default(["comprobantes", "recibos", "recibos-pago", "cuenta-corriente", "proyectos", "presupuestos", "materiales", "importaciones", "integraciones", "webhooks"])
   // Cómo se llama la entidad Proyecto en pantalla y en los documentos (para Ale Herrería: "Obra" / "Obras").
-  etiquetaProyecto       String    @default("Proyecto")
-  etiquetaProyectoPlural String    @default("Proyectos")
-  activo             Boolean       @default(true)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  etiquetaProyecto       String        @default("Proyecto")
+  etiquetaProyectoPlural String        @default("Proyectos")
+  activo                 Boolean       @default(true)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   usuarios             Usuario[]
   integraciones        Integracion[]
@@ -164,6 +164,8 @@ model Tenant {
   recibos              Recibo[]
   movimientosCc        MovimientoCuentaCorriente[]
   imputacionesCc       ImputacionCuentaCorriente[]
+  proyectos            Proyecto[]
+  certificaciones      CertificacionHito[]
 
   @@map("tenants")
 }
@@ -380,6 +382,7 @@ model Cliente {
   comprobantes  Comprobante[]
   recibos       Recibo[]
   movimientosCc MovimientoCuentaCorriente[]
+  proyectos     Proyecto[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, claveDocumento])
@@ -572,6 +575,9 @@ model Comprobante {
   motivo         String?
 
   observaciones     String? // texto libre que va al PDF
+  // Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA (ModoIvaProyecto).
+  proyectoId        String?
+  proyecto          Proyecto? @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
   cae               String?
   caeVencimiento    DateTime? @db.Date
   observacionesArca Json?
@@ -632,6 +638,18 @@ model Recibo {
   periodo               String? // solo PAGO
   medioPago             String?
   observaciones         String?
+  // Entrega de un proyecto: el pago se imputa a las deudas de ese proyecto y el PDF muestra su estado.
+  proyectoId            String?
+  proyecto              Proyecto?  @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  // Copia del estado del proyecto al guardar el recibo (EstadoProyectoRecibo): el PDF muestra el saldo de esa fecha.
+  estadoProyecto        Json?
+  // Pago en otra moneda que la deuda: cuánto cancela en la moneda del proyecto y con qué tipo de cambio.
+  monedaImputacion      Moneda?
+  importeImputacion     Decimal?   @db.Decimal(15, 2)
+  tipoCambio            Decimal?   @db.Decimal(15, 6)
+  // Anular no borra: la cuenta corriente revierte el cobro con un movimiento de anulación.
+  anuladoEn             DateTime?
+  motivoAnulacion       String?
   creadoPorId           String?
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
@@ -642,6 +660,7 @@ model Recibo {
   @@unique([tenantId, tipo, numero]) // Postgres permite múltiples NULL
   @@index([tenantId, fecha])
   @@index([tenantId, clienteId])
+  @@index([tenantId, proyectoId])
   @@map("recibos")
 }
 
@@ -655,41 +674,71 @@ enum TipoMovimientoCc {
 enum OrigenMovimientoCc {
   COMPROBANTE // factura / ND (DEBE) o NC (HABER) emitida: la crea la sincronización
   RECIBO // recibo de cobro guardado con un cliente: la crea la sincronización
-  MANUAL // cargado desde Cuenta corriente (saldo inicial, ajuste, cobro sin recibo)
+  MANUAL // cargado desde Cuenta corriente (saldo inicial, ajuste, cobro sin recibo) o adicional de un proyecto
+  ACUERDO // hito del monto acordado de un proyecto (DEBE)
+  ANULACION // revierte un cobro de un recibo anulado (DEBE imputado a ese HABER)
+}
+
+enum EstadoProyecto {
+  EN_CURSO
+  FINALIZADO
+  CANCELADO
+}
+
+/// Cómo impactan en la cuenta corriente las facturas de un proyecto con monto acordado.
+enum ModoIvaProyecto {
+  MAS_IVA // la factura suma solo su IVA y tributos (el neto ya está en el acordado); una NC los resta
+  ACORDADO_FINAL // la factura no suma nada: el acordado ya es el precio final
 }
 
 /// Un renglón de la cuenta corriente de un cliente (como Vialto). Los de comprobantes y recibos
 /// los crea la sincronización (CuentaCorrienteService.sincronizar), nunca se editan a mano salvo el
 /// vencimiento. Lo pendiente de cada uno no se guarda: sale de las imputaciones.
 model MovimientoCuentaCorriente {
-  id               String             @id @default(cuid())
+  id               String                      @id @default(cuid())
   tenantId         String
-  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   clienteId        String
-  cliente          Cliente            @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  cliente          Cliente                     @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
   tipo             TipoMovimientoCc
   origen           OrigenMovimientoCc
   comprobanteId    String?
-  comprobante      Comprobante?       @relation(fields: [tenantId, comprobanteId], references: [tenantId, id], onDelete: Cascade)
+  comprobante      Comprobante?                @relation(fields: [tenantId, comprobanteId], references: [tenantId, id], onDelete: Cascade)
   reciboId         String?
-  recibo           Recibo?            @relation(fields: [tenantId, reciboId], references: [tenantId, id], onDelete: Cascade)
+  recibo           Recibo?                     @relation(fields: [tenantId, reciboId], references: [tenantId, id], onDelete: Cascade)
   concepto         String // "Factura A", "Recibo de cobro", "Saldo inicial"…
   numero           String? // número del comprobante, recibo o referencia externa
   moneda           Moneda
-  importe          Decimal            @db.Decimal(15, 2) // siempre positivo; el tipo dice el signo
-  fecha            DateTime           @db.Date
-  fechaVencimiento DateTime?          @db.Date // solo DEBE
+  importe          Decimal                     @db.Decimal(15, 2) // siempre positivo; el tipo dice el signo
+  fecha            DateTime                    @db.Date
+  fechaVencimiento DateTime?                   @db.Date // solo DEBE
   observaciones    String?
+  // Proyecto (obra). Un HABER con proyecto se imputa solo a DEBE de ese proyecto; sin proyecto, solo a DEBE sin proyecto.
+  proyectoId       String?
+  proyecto         Proyecto?                   @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  // Hitos (origen ACUERDO): orden en el plan de pagos y si se cobra por certificaciones de avance.
+  orden            Int?
+  porCertificacion Boolean                     @default(false)
+  // Pago en otra moneda: lo que entró (moneda e importe) y el tipo de cambio usado. `importe` está en `moneda`.
+  monedaOrigen     Moneda?
+  importeOrigen    Decimal?                    @db.Decimal(15, 2)
+  tipoCambio       Decimal?                    @db.Decimal(15, 6)
+  // Origen ANULACION: el HABER (cobro de un recibo anulado) que revierte.
+  anulaId          String?
+  anula            MovimientoCuentaCorriente?  @relation("Anulacion", fields: [tenantId, anulaId], references: [tenantId, id], onDelete: Cascade)
+  anuladoPor       MovimientoCuentaCorriente[] @relation("Anulacion")
   creadoPorId      String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
 
   imputacionesComoDebe  ImputacionCuentaCorriente[] @relation("ImputacionDebe")
   imputacionesComoHaber ImputacionCuentaCorriente[] @relation("ImputacionHaber")
+  certificaciones       CertificacionHito[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, comprobanteId])
   @@unique([tenantId, reciboId])
+  @@index([tenantId, proyectoId])
   @@index([tenantId, clienteId, fecha])
   @@map("movimientos_cuenta_corriente")
 }
@@ -711,6 +760,61 @@ model ImputacionCuentaCorriente {
   @@unique([tenantId, haberId, debeId])
   @@index([tenantId, debeId])
   @@map("imputaciones_cuenta_corriente")
+}
+
+// ─────────────────────────────── Proyectos ───────────────────────────────
+
+/// Un trabajo para un cliente (en pantalla, con la etiqueta de la empresa: "Obra"). El monto acordado
+/// se divide en hitos, que son DEBE de la cuenta corriente (origen ACUERDO). No guarda saldos: salen
+/// de los movimientos.
+model Proyecto {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String
+  cliente        Cliente         @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  nombre         String
+  ubicacion      String?
+  estado         EstadoProyecto  @default(EN_CURSO)
+  moneda         Moneda          @default(ARS)
+  montoAcordado  Decimal?        @db.Decimal(15, 2) // null: sin acordado (las facturas suman su total)
+  modoIva        ModoIvaProyecto @default(MAS_IVA)
+  tipoCambioFijo Decimal?        @db.Decimal(15, 6) // pesos por dólar; gana sobre la cotización de ARCA
+  fechaInicio    DateTime?       @db.Date
+  fechaFin       DateTime?       @db.Date
+  observaciones  String?
+  creadoPorId    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  movimientosCc MovimientoCuentaCorriente[]
+  comprobantes  Comprobante[]
+  recibos       Recibo[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clienteId, nombre])
+  @@index([tenantId, estado])
+  @@map("proyectos")
+}
+
+/// Avance certificado de un hito "por certificación": la parte exigible del hito (vencimientos,
+/// avisos e imputaciones trabajan sobre esto). La suma no supera el importe del hito.
+model CertificacionHito {
+  id               String                    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hitoId           String
+  hito             MovimientoCuentaCorriente @relation(fields: [tenantId, hitoId], references: [tenantId, id], onDelete: Cascade)
+  fecha            DateTime                  @db.Date
+  descripcion      String
+  importe          Decimal                   @db.Decimal(15, 2)
+  fechaVencimiento DateTime?                 @db.Date
+  creadoPorId      String?
+  createdAt        DateTime                  @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, hitoId])
+  @@map("certificaciones_hito")
 }
 
 model ComprobanteLinea {

@@ -113,13 +113,14 @@ function dibujar(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEsti
     doc.moveTo(M, yy + 18).lineTo(M + CW, yy + 18).lineWidth(LINEA).stroke(col.primario);
     return yy + 18;
   };
-  const fila = (yy: number, celdas: string[], anchos = cols) => {
-    doc.fontSize(8.5).font(f.normal);
+  const fila = (yy: number, celdas: string[], anchos = cols, destacado = false) => {
+    const fuente = destacado ? f.seminegrita : f.normal;
+    doc.fontSize(8.5).font(fuente);
     const alto = Math.max(20, ...celdas.map((v, i) => doc.heightOfString(v, { width: anchos[i].w - 8 }) + 10));
     if (yy + alto > limite) yy = cabecera(nuevaPagina(), anchos);
     let x = M;
     celdas.forEach((v, i) => {
-      doc.fillColor(TEXTO).text(v, x + 4, yy + 5, { width: anchos[i].w - 8, align: anchos[i].a, ...(i > 0 ? NUM : {}) });
+      doc.font(fuente).fillColor(TEXTO).text(v, x + 4, yy + 5, { width: anchos[i].w - 8, align: anchos[i].a, ...(i > 0 ? NUM : {}) });
       x += anchos[i].w;
     });
     doc.moveTo(M, yy + alto).lineTo(M + CW, yy + alto).lineWidth(0.5).stroke(BORDE);
@@ -146,6 +147,19 @@ function dibujar(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEsti
     y += 10;
   }
 
+  // Secciones extra (estado de cuenta de una obra): texto, detalle (fecha) e importe.
+  for (const sec of c.secciones) {
+    const colsSec = [
+      { t: sec.titulo, w: CW - 220, a: 'left' as const },
+      { t: '', w: 110, a: 'right' as const },
+      { t: 'Importe', w: 110, a: 'right' as const },
+    ];
+    if (y + 40 > limite) y = nuevaPagina();
+    y = cabecera(y + 6, colsSec);
+    for (const r of sec.filas) y = fila(y, [r.texto, r.detalle, r.importe], colsSec, r.destacado);
+    y += 10;
+  }
+
   // Período, medio de pago, observaciones
   for (const [k, v] of c.datosExtra) {
     if (y + 14 > limite) y = nuevaPagina();
@@ -168,7 +182,7 @@ function dibujar(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEsti
     doc.moveTo(fx, fy).lineTo(fx + 220, fy).lineWidth(LINEA).stroke(TEXTO);
     doc.fontSize(8).font(f.normal).fillColor(TEXTO_SECUNDARIO).text(c.firma.etiqueta, fx, fy + 4, { width: 220, align: 'center' });
   }
-  doc.fontSize(9).font(f.seminegrita).fillColor(TEXTO).text(c.firma.nombre, fx, fy + 16, { width: 220, align: 'center' });
+  doc.fontSize(9).font(f.seminegrita).fillColor(TEXTO).text(estilo.firmaTexto?.trim() || c.firma.nombre, fx, fy + 16, { width: 220, align: 'center' });
   if (c.firma.documento) {
     doc.fontSize(8).font(f.normal).fillColor(TEXTO_SECUNDARIO).text(c.firma.documento, fx, doc.y + 1, { width: 220, align: 'center', ...NUM });
   }
@@ -186,6 +200,17 @@ function dibujar(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEsti
     }
   }
   pie(true);
+  if (estilo.anulado) marcaAnulado(doc, f);
+}
+
+/** "ANULADO" cruzado sobre la página: el recibo se conserva, pero no vale. */
+function marcaAnulado(doc: PDFKit.PDFDocument, f: Fuentes) {
+  doc.save();
+  doc.rotate(-30, { origin: [PAGE_W / 2, PAGE_H / 2] });
+  doc.fontSize(96).font(f.seminegrita).fillColor('#A3352B').fillOpacity(0.18)
+    .text('ANULADO', 0, PAGE_H / 2 - 50, { width: PAGE_W, align: 'center', lineBreak: false });
+  doc.restore();
+  doc.fillOpacity(1);
 }
 
 function encabezado(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboEstilo, col: Colores, f: Fuentes): number {
@@ -207,6 +232,7 @@ function encabezado(doc: PDFKit.PDFDocument, c: ContenidoRecibo, estilo: ReciboE
   doc.fontSize(8).font(f.normal).fillColor(TEXTO);
   if (c.encabezado.documento) doc.text(c.encabezado.documento, { width: anchoIzq, ...NUM });
   if (c.encabezado.domicilio) doc.text(c.encabezado.domicilio, { width: anchoIzq });
+  for (const linea of c.encabezado.detalle ?? []) doc.text(linea, { width: anchoIzq, ...NUM });
 
   // El recuadro crece con el logo y los datos (como mínimo, lo que ocupa la columna del título).
   const alto = Math.max(96, doc.y - y + 10);

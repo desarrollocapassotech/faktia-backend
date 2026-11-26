@@ -4,6 +4,8 @@ export interface Parte {
   nombre: string;
   documento?: string; // "CUIT 20-12345678-9", "DNI 12.345.678"… ya formateado
   domicilio?: string;
+  /** Renglones extra del encabezado, ya formateados (teléfono, ingresos brutos, condición frente al IVA…). */
+  detalle?: string[];
 }
 
 export type MonedaRecibo = 'ARS' | 'USD';
@@ -24,6 +26,18 @@ interface ReciboBase {
   total: string;
   medioPago?: string;
   observaciones?: string;
+  /** Renglones extra debajo de los conceptos, ya como texto (ej. ["Equivalencia", "US$ 1.000,00 al TC $ 1.050,00"]). */
+  datosExtra?: Array<[string, string]>;
+  /**
+   * Tablas adicionales, ya formateadas (ej. el estado de cuenta de una obra: acordado, entregas,
+   * saldo y lo que falta cobrar). Cada fila: texto, detalle opcional (una fecha) e importe.
+   */
+  secciones?: SeccionRecibo[];
+}
+
+export interface SeccionRecibo {
+  titulo: string;
+  filas: Array<{ texto: string; detalle?: string; importe: string; destacado?: boolean }>;
 }
 
 /** Recibo de COBRO: el emisor recibe dinero de su cliente y firma. */
@@ -65,6 +79,10 @@ export interface ReciboEstilo {
    * con su leyenda al lado (ej. un link para verificar el recibo).
    */
   qr?: { imagen: Uint8Array; leyenda: string };
+  /** Texto de la firma (ej. "ATTE. ALEXIS NAHUEL HERMAN"): va en lugar del nombre de quien firma. */
+  firmaTexto?: string;
+  /** Recibo anulado: lleva la marca "ANULADO" cruzada. */
+  anulado?: boolean;
 }
 
 export interface ReciboOutput {

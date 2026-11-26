@@ -51,6 +51,9 @@ const SELECT_CUENTA_CORRIENTE = {
   fechaEmision: true,
   fechaVtoPago: true,
   asociadoId: true,
+  proyectoId: true,
+  importeIva: true,
+  importeTributos: true,
   puntoVenta: { select: { numero: true } },
   cliente: { select: { diasVencimiento: true } },
 } satisfies Prisma.ComprobanteSelect;
@@ -299,6 +302,21 @@ export class ComprobantesService {
 
   // ── Borradores ───────────────────────────────────────────────────────────
 
+  /**
+   * El proyecto (obra) lo administra la cuenta corriente: este módulo no lee su tabla. La FK compuesta
+   * (tenantId, proyectoId) rechaza uno inexistente o de otra empresa; acá se traduce a un 400.
+   */
+  private async conProyectoValido<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003' && String(err.meta?.field_name ?? '').includes('proyecto')) {
+        throw new BadRequestException('El proyecto no existe.');
+      }
+      throw err;
+    }
+  }
+
   async crearBorrador(auth: AuthContext, dto: CrearBorradorDto) {
     const emisor = await this.tenants.obtenerEmisorCompleto(auth.tenantId);
     const cliente = await this.clientes.obtener(auth.tenantId, dto.clienteId);
@@ -314,7 +332,7 @@ export class ComprobantesService {
     validarFechasServicio(datos, false);
     const calculo = this.calcular(dto.lineas, TIPOS_COMPROBANTE[tipo].letra);
 
-    const creado = await this.prisma.comprobante.create({
+    const creado = await this.conProyectoValido(() => this.prisma.comprobante.create({
       data: {
         tenantId: auth.tenantId,
         tipo,
@@ -329,13 +347,14 @@ export class ComprobantesService {
         moneda: dto.moneda ?? cliente.monedaPreferida,
         cancelaMismaMoneda: dto.cancelaMismaMoneda ?? false,
         observaciones: dto.observaciones?.trim() || null,
+        proyectoId: dto.proyectoId || null,
         creadoPorId: auth.usuarioId ?? null,
         ...calculo.totales,
         // tenantId de líneas y alícuotas sale de la FK compuesta con el comprobante.
         lineas: { create: calculo.lineas },
         alicuotas: { create: calculo.alicuotas },
       },
-    });
+    }));
     return this.obtener(auth.tenantId, creado.id);
   }
 
@@ -393,7 +412,7 @@ export class ComprobantesService {
       }));
     const calculo = this.calcular(lineas, TIPOS_COMPROBANTE[tipo].letra);
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.conProyectoValido(() => this.prisma.$transaction(async (tx) => {
       const { count } = await tx.comprobante.updateMany({
         where: { tenantId: auth.tenantId, id, version: dto.version, estado: { in: [...EDITABLES] } },
         data: {
@@ -409,6 +428,7 @@ export class ComprobantesService {
           cancelaMismaMoneda: dto.cancelaMismaMoneda,
           observaciones: dto.observaciones === undefined ? undefined : dto.observaciones?.trim() || null,
           motivo: dto.motivo === undefined ? undefined : dto.motivo?.trim() || null,
+          proyectoId: dto.proyectoId === undefined ? undefined : dto.proyectoId || null,
           version: { increment: 1 },
           ...calculo.totales,
         },
@@ -431,7 +451,7 @@ export class ComprobantesService {
           data: calculo.alicuotas.map((a) => ({ ...a, tenantId: auth.tenantId, comprobanteId: id })),
         });
       }
-    });
+    }));
     return this.obtener(auth.tenantId, id);
   }
 
@@ -593,6 +613,8 @@ export class ComprobantesService {
         importeTributos: factura.importeTributos,
         importeTotal: factura.importeTotal,
         asociadoId: factura.id,
+        // La nota es del mismo proyecto que su factura (la cuenta corriente aplica el mismo modo de IVA).
+        proyectoId: factura.proyectoId,
         motivo: dto.motivo.trim(),
         creadoPorId: auth.usuarioId ?? null,
         lineas: { create: lineas },

@@ -267,7 +267,7 @@ Implementación de `docs/DOC_FUNCIONAL.md` para el primer cliente (Ale Herrería
 | Subfase | Estado |
 |---|---|
 | 1. Base: módulos por empresa, etiquetas de proyecto, firma, clientes sin documento | ✅ Hecha (migración `20261126120000_ale_base`) |
-| 2. Proyectos + cuenta corriente + recibos | ⏳ Pendiente |
+| 2. Proyectos + cuenta corriente + recibos | ✅ Hecha (migración `20261126130000_ale_proyectos`) |
 | 3. Avisos por email | ⏳ Pendiente |
 | 4. Presupuestos | ⏳ Pendiente |
 | 5. Materiales + proveedores | ⏳ Pendiente |

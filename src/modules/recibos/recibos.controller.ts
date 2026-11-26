@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { CurrentAuth, Modulo, Public, type AuthContext } from '../auth';
 import { MODULO_DESHABILITADO } from '../../shared/modulos/modulos';
 import type { ReciboOutput } from './core';
-import { CrearReciboDto, GenerarReciboDto, SiguienteNumeroQuery, VerificarReciboQuery } from './dto/recibos.dto';
+import { AnularReciboDto, CrearReciboDto, GenerarReciboDto, SiguienteNumeroQuery, VerificarReciboQuery } from './dto/recibos.dto';
 import { RecibosService } from './recibos.service';
 
 function enviarPdf(res: Response, { pdf, filename }: ReciboOutput) {
@@ -58,6 +58,13 @@ export class RecibosController {
   @Get(':id')
   obtener(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
     return this.recibos.obtener(auth.tenantId, id);
+  }
+
+  /** Anula el recibo: queda guardado y la cuenta corriente revierte su cobro. */
+  @Post(':id/anular')
+  @HttpCode(200)
+  anular(@CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() dto: AnularReciboDto) {
+    return this.recibos.anular(auth.tenantId, id, dto.motivo);
   }
 
   @Get(':id/pdf')

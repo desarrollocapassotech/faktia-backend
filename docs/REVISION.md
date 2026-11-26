@@ -18,6 +18,23 @@
 - **Clientes sin documento:** columna `Cliente.claveDocumento` (`TIPO:NUMERO`, null sin documento) con unique `(tenantId, claveDocumento)`. Reemplaza el unique `(tenantId, tipoDocumento, numeroDocumento)`.
 - Migración `20261126120000_ale_base`. E2E `src/ale-base.e2e.spec.ts`.
 
+### Fase 2: Proyectos + cuenta corriente + recibos
+
+- **`Proyecto`** (tabla `proyectos`) vive en el módulo `cuenta-corriente` (carpeta `proyectos/`): no guarda saldos y todo lo que mueve plata es de la cuenta corriente. Rutas `/proyectos` con `@Modulo('proyectos')`.
+- **Plan de pagos:** cada hito es un `MovimientoCuentaCorriente` DEBE con origen `ACUERDO`, `proyectoId`, `orden`, vencimiento opcional y `porCertificacion`. `PUT /proyectos/:id/plan` reemplaza el plan: los hitos tienen que sumar el acordado; los que tienen cobros o certificaciones solo cambian descripción y vencimiento. Con acordado y sin hitos, queda un único hito "Monto acordado".
+- **Certificaciones:** tabla `certificaciones_hito`. Su suma no supera el hito. Solo lo certificado es exigible: la imputación, los vencidos, el resumen y los avisos trabajan sobre eso. Lo cobrado de un hito se reparte entre sus certificaciones por vencimiento.
+- **Saldo total y exigible:** por proyecto, por cliente (`saldos[].exigible`) y en el resumen (`aCertificar`).
+- **Imputación automática por proyecto** (`CuentaCorrienteService.imputarProyecto`): los pagos del proyecto se aplican a sus deudas exigibles, hitos por orden y después el resto por vencimiento. Corre después de cada cambio (entrega, certificación, adicional, factura, plan). Un HABER sin proyecto solo se imputa a DEBE sin proyecto (también al imputar a mano).
+- **IVA de facturas** (`impactoFactura`): sin acordado, el total; `ACORDADO_FINAL`, $0 (queda el renglón con la aclaración); `MAS_IVA`, IVA + tributos. Una NC hace lo mismo como HABER. Cambiar el modo (o pasar a tener/no tener acordado) desimputa y recalcula (`recalcularComprobantesDeProyecto`). `Comprobante.proyectoId` (también en la API pública); la NC hereda el proyecto de su factura.
+- **Tipo de cambio:** editado en el pago → `Proyecto.tipoCambioFijo` → cotización de ARCA (`PROVEEDOR_COTIZACION`, adaptador `CotizacionArca` con `FEParamGetCotizacion`, fake en los tests). Los movimientos guardan `monedaOrigen`, `importeOrigen` y `tipoCambio`; el recibo, `monedaImputacion`, `importeImputacion` y `tipoCambio`.
+- **Entregas** (`POST /proyectos/:id/entregas`): con recibo (número siguiente automático, en la moneda en que pagó) o sin recibo (pagos viejos con su fecha original).
+- **Recibo con estado de la obra:** `Recibo.proyectoId` + `estadoProyecto` (copia al guardar). El PDF muestra acordado, entregas con fecha, saldo, lo que falta (hitos, certificaciones pendientes, a certificar) y la equivalencia de TC. Encabezado con teléfono, email, IIBB, inicio de actividades y condición IVA; firma con `firmaTexto`.
+- **Anular recibo** (`POST /recibos/:id/anular`): el recibo queda con la marca "ANULADO" y su cobro se revierte con un DEBE origen `ANULACION` imputado a él (trazable, no se borra nada).
+- **Adicionales:** `POST /proyectos/:id/adicionales` (DEBE `MANUAL` con proyecto). Los movimientos manuales aceptan `proyectoId` y `tipoCambio`.
+- Frontend: Obras (listado con filtros por estado, alta con plan de pagos, detalle con plan, certificaciones con ayudante de %, adicionales, facturas, entregas y recibos), obra en el editor de comprobantes, anular recibo, obra y exigible en la cuenta corriente.
+- Script `npm run datos-ejemplo-ale` (empresa de ejemplo con los casos del doc, usando los servicios reales).
+- Tests: `domain/proyecto.spec.ts` (casos de Costa Doll, Wilson Carrillo, Municipalidad), `estado-proyecto.spec.ts`, e2e `src/ale-proyectos.e2e.spec.ts` y el de aislamiento ampliado.
+
 ## 2. Decisiones tomadas por mi cuenta
 
 | # | Tema | Decisión |
@@ -28,6 +45,13 @@
 | R4 | Facturación para Ale | Seguí el pedido: a Ale se le ocultan importaciones, integraciones, webhooks y recibos de pago. **La facturación queda visible** aunque el doc la marca como opcional. Si preferís ocultarla, `--ocultar comprobantes`: el listado de Comprobantes sigue mostrando los recibos y los avisos de ARCA desaparecen. |
 | R5 | Rutas de comprobantes | Con `comprobantes` deshabilitado se bloquean crear, editar, emitir y notas. El listado (`GET /comprobantes`) queda abierto porque también lista los recibos. |
 | R6 | Tarifas | La pestaña Tarifas se muestra con el módulo `importaciones` (las tarifas se usan al importar ítems). |
+| R8 | Dónde vive Proyecto | En el módulo `cuenta-corriente`. Un módulo `proyectos` aparte formaría un ciclo: la cuenta corriente necesita el modo de IVA del proyecto para las facturas y el proyecto necesita la cuenta para hitos y saldos. Los demás módulos ven el proyecto solo por FK compuesta. |
+| R9 | Hito "al terminar" sin fecha | Un hito común sin vencimiento es exigible (cuenta en el saldo exigible) pero nunca aparece como vencido. En Costa Doll, con $5.000.000 certificados, el exigible es $6.320.000 (certificado + hito final). Si preferís que "al terminar" no sea exigible hasta una fecha, se le carga el vencimiento cuando corresponda. |
+| R10 | Factura en otra moneda que la obra | Si la factura no es del mismo cliente o de la misma moneda que la obra, cuenta como factura sin proyecto (suma su total). Ej.: obra en dólares facturada en pesos. |
+| R11 | "Acordado final" | La factura queda en la cuenta con importe $0 y la aclaración "Incluida en el monto acordado", para que se vea. |
+| R12 | Número de recibo de una entrega | El siguiente al último recibo de cobro (como ya sugería la pantalla de recibos), editable en la API. |
+| R13 | Anulación | La anulación se registra con la fecha del día en que se sincroniza. El recibo anulado sigue en el listado, con su PDF marcado. Solo se anulan recibos de cobro desde la pantalla. |
+| R14 | Recibos sueltos | La pantalla general de recibos (Nuevo comprobante → Recibo) sigue sin obra; las entregas de obra se registran desde la obra. |
 | R7 | Clientes sin documento | Se siguen guardando como `CONSUMIDOR_FINAL` con número "0" (lo que ya entendía ARCA). En pantalla el tipo se llama "Sin documento". |
 
 ## 3. BLOQUEANTES
@@ -37,6 +61,7 @@ Ninguno por ahora.
 ## 4. Pendiente local
 
 - [ ] Aplicar las migraciones nuevas en la base (con tu OK): `npx prisma migrate deploy`.
+- [ ] Probar la cotización real de ARCA: en una obra en dólares sin TC fijo, "Registrar entrega" en pesos. Tiene que sugerir el TC de `FEParamGetCotizacion` (necesita `AFIP_SDK_API_KEY`).
 
 ## 5. Cómo revisarlo
 

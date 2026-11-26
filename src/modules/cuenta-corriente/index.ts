@@ -1,2 +1,4 @@
 export { CuentaCorrienteModule } from './cuenta-corriente.module';
-export { CuentaCorrienteService } from './cuenta-corriente.service';
+export { CuentaCorrienteService, type DebeAbierto } from './cuenta-corriente.service';
+export { ProyectosService } from './proyectos/proyectos.service';
+export { PROVEEDOR_COTIZACION, type ProveedorCotizacion } from './cotizacion';

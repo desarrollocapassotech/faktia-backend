@@ -135,6 +135,13 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     a.movimientoDebe = (await prisma.movimientoCuentaCorriente.create({ data: { ...movimiento, tipo: 'DEBE', concepto: 'Saldo inicial' } })).id;
     a.movimientoHaber = (await prisma.movimientoCuentaCorriente.create({ data: { ...movimiento, tipo: 'HABER', concepto: 'Cobro' } })).id;
     a.imputacion = (await prisma.imputacionCuentaCorriente.create({ data: { tenantId: t, haberId: a.movimientoHaber, debeId: a.movimientoDebe, importe: '40' } })).id;
+    a.proyecto = (await prisma.proyecto.create({ data: { tenantId: t, clienteId: a.cliente, nombre: 'Obra A', montoAcordado: '1000' } })).id;
+    a.hito = (
+      await prisma.movimientoCuentaCorriente.create({
+        data: { ...movimiento, tipo: 'DEBE', origen: 'ACUERDO', concepto: 'Según avance', importe: '1000', proyectoId: a.proyecto, orden: 1, porCertificacion: true },
+      })
+    ).id;
+    a.certificacion = (await prisma.certificacionHito.create({ data: { tenantId: t, hitoId: a.hito, fecha: new Date('2026-09-29'), descripcion: 'Avance', importe: '100' } })).id;
 
     // Empresa B: sesión de usuario y API key con todos los permisos.
     const tb = await crearTenant('b');
@@ -161,6 +168,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
       await prisma.comprobante.deleteMany({ where: { tenantId: id } });
       await prisma.recibo.deleteMany({ where: { tenantId: id } });
       await prisma.importacion.deleteMany({ where: { tenantId: id } });
+      await prisma.proyecto.deleteMany({ where: { tenantId: id } });
       await prisma.tenant.delete({ where: { id } });
     }
     await prisma.$disconnect();
@@ -208,6 +216,19 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['DELETE', `/cuenta-corriente/movimientos/${a.movimientoDebe}`],
     ['POST', '/cuenta-corriente/imputaciones', { haberId: a.movimientoHaber, debeId: a.movimientoDebe }],
     ['DELETE', `/cuenta-corriente/imputaciones/${a.imputacion}`],
+    ['POST', `/recibos/${a.recibo}/anular`, { motivo: 'x' }],
+    ['GET', `/proyectos/${a.proyecto}`],
+    ['PATCH', `/proyectos/${a.proyecto}`, { nombre: 'Hackeada' }],
+    ['DELETE', `/proyectos/${a.proyecto}`],
+    ['PUT', `/proyectos/${a.proyecto}/plan`, { montoAcordado: null, hitos: [] }],
+    ['POST', `/proyectos/${a.proyecto}/hitos/${a.hito}/certificaciones`, { fecha: '2026-09-29', descripcion: 'x', importe: '1' }],
+    ['DELETE', `/proyectos/${a.proyecto}/certificaciones/${a.certificacion}`],
+    ['POST', `/proyectos/${a.proyecto}/adicionales`, { fecha: '2026-09-29', concepto: 'x', importe: '1' }],
+    ['POST', `/proyectos/${a.proyecto}/entregas`, { fecha: '2026-09-29', moneda: 'ARS', importe: '1', conRecibo: false }],
+    ['GET', `/proyectos/cotizacion-dolar?proyectoId=${a.proyecto}`],
+    // Un proyecto de B no puede ser de un cliente de A; ni un comprobante o movimiento de B, de un proyecto de A.
+    ['POST', '/proyectos', { clienteId: a.cliente, nombre: 'x' }],
+    ['POST', '/cuenta-corriente/movimientos', { clienteId: a.cliente, proyectoId: a.proyecto, tipo: 'HABER', concepto: 'x', fecha: '2026-09-29', moneda: 'ARS', importe: '1' }],
   ];
 
   it('con la sesión de otra empresa, ningún endpoint con id toca recursos ajenos', async () => {
@@ -256,7 +277,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   });
 
   it('los listados de B no muestran nada de A', async () => {
-    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen'];
+    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen', '/proyectos'];
     const idsA = Object.values(a);
     const filtrados: string[] = [];
     for (const ruta of rutas) {
@@ -336,6 +357,13 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ]);
     expect(debe.concepto).toBe('Saldo inicial');
     expect(imputacion.importe.toString()).toBe('40');
+    const [proyecto, certificacion] = await Promise.all([
+      prisma.proyecto.findUniqueOrThrow({ where: { id: a.proyecto } }),
+      prisma.certificacionHito.findUniqueOrThrow({ where: { id: a.certificacion } }),
+    ]);
+    expect(proyecto).toMatchObject({ nombre: 'Obra A', estado: 'EN_CURSO' });
+    expect(certificacion.importe.toString()).toBe('100');
+    expect((await prisma.recibo.findUniqueOrThrow({ where: { id: a.recibo } })).anuladoEn).toBeNull();
     expect(await prisma.movimientoCuentaCorriente.count({ where: { tenantId: { in: tenants.slice(1) } } })).toBe(0);
     expect(await prisma.comprobante.count({ where: { tenantId: { in: tenants.slice(1) } } })).toBe(0);
   });
