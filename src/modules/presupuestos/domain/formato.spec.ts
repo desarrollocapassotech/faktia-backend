@@ -39,6 +39,11 @@ describe('texto con formato limitado', () => {
     );
     expect(sanearFormato('<span style="color:#0080ff"><span style="color: #1b262d;">todo normal</span></span>')).toBe('<p>todo normal</p>');
   });
+  it('el color en línea manda sobre la clase del mismo span (recolorear un texto entero)', () => {
+    expect(sanearFormato('<span class="c-rojo" style="color: rgb(27, 38, 45);">Actualización de textos</span>')).toBe('<p>Actualización de textos</p>');
+    expect(sanearFormato('<span class="c-rojo" style="color: rgb(30, 58, 76);">ahora azul</span>')).toBe('<p><span class="c-azul">ahora azul</span></p>');
+    expect(sanearFormato('<span class="c-rojo" style="color: rgb(0, 128, 255);">celeste</span>')).toBe('<p><span style="color:#0080ff">celeste</span></p>');
+  });
   it('no deja pasar nada raro dentro del style', () => {
     expect(sanearFormato('<span style="color: red; background: url(javascript:x)">a</span>')).toBe('<p><span class="c-rojo">a</span></p>');
     expect(sanearFormato('<span style="color: #fff&quot;onmouseover=x">a</span>')).toBe('<p>a</p>');

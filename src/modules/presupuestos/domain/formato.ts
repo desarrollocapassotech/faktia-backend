@@ -139,11 +139,14 @@ export function parsearFormato(entrada: string): Parrafo[] {
     const colorCss = /(?:^|;)\s*color\s*:\s*([^;]+)/.exec(css)?.[1];
     const colorAttr = /\bcolor\s*=\s*"([^"]*)"/i.exec(attrs)?.[1];
     const clase = /class\s*=\s*"[^"]*\bc-(rojo|azul|verde|naranja)\b/i.exec(attrs)?.[1]?.toLowerCase() as NombreColor | undefined;
-    const color = clase ? COLORES[clase] : normalizarColor(colorCss ?? colorAttr);
-    if (color) estilo.color = color;
-    // "Normal" dentro de un texto con color: el editor agrega un span con el color del texto adentro
-    // del span coloreado. Tiene que anular el color de afuera, no ignorarse.
-    else if (esColorNormal(colorCss ?? colorAttr)) estilo.color = undefined;
+    // El color en línea manda sobre la clase: al recolorear todo un texto que ya tenía color, el editor
+    // le agrega `style="color:…"` al mismo `<span class="c-rojo">` (y en pantalla gana el style).
+    const crudo = colorCss ?? colorAttr;
+    const enLinea = normalizarColor(crudo);
+    if (enLinea) estilo.color = enLinea;
+    // "Normal" (negro o grafito) anula el color de afuera o el de la clase, no se ignora.
+    else if (esColorNormal(crudo)) estilo.color = undefined;
+    else if (clase) estilo.color = COLORES[clase];
     pila.push({ tag, estilo });
   }
   // Sin párrafos vacíos al principio ni al final.
