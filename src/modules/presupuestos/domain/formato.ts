@@ -46,14 +46,25 @@ const hex2 = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(
  * #rrggbb. Negro, el grafito del texto o algo que no se entiende: sin color (texto normal).
  */
 export function normalizarColor(css: string | undefined): string | undefined {
+  const hex = aHex(css);
+  return hex && !SIN_COLOR.has(hex) ? hex : undefined;
+}
+
+/** El color es el del texto normal (negro o grafito): lo que deja el botón "Normal" del editor. */
+export function esColorNormal(css: string | undefined): boolean {
+  const hex = aHex(css);
+  return Boolean(hex && SIN_COLOR.has(hex));
+}
+
+function aHex(css: string | undefined): string | undefined {
   if (!css) return undefined;
   const v = css.trim().toLowerCase();
-  let hex: string | undefined = POR_NOMBRE_CSS[v] ?? (COLORES as Record<string, string>)[v];
+  let hex: string | undefined = POR_NOMBRE_CSS[v] ?? (COLORES as Record<string, string>)[v] ?? (v === 'black' ? '#000000' : undefined);
   const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
   if (h) hex = `#${h[1].length === 3 ? h[1].replace(/./g, (c) => c + c) : h[1]}`;
   const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(v);
   if (m) hex = `#${hex2(Number(m[1]))}${hex2(Number(m[2]))}${hex2(Number(m[3]))}`;
-  return hex && !SIN_COLOR.has(hex) ? hex : undefined;
+  return hex;
 }
 
 const nombreDeColor = (hex: string) => (Object.keys(COLORES) as NombreColor[]).find((n) => COLORES[n] === hex);
@@ -130,6 +141,9 @@ export function parsearFormato(entrada: string): Parrafo[] {
     const clase = /class\s*=\s*"[^"]*\bc-(rojo|azul|verde|naranja)\b/i.exec(attrs)?.[1]?.toLowerCase() as NombreColor | undefined;
     const color = clase ? COLORES[clase] : normalizarColor(colorCss ?? colorAttr);
     if (color) estilo.color = color;
+    // "Normal" dentro de un texto con color: el editor agrega un span con el color del texto adentro
+    // del span coloreado. Tiene que anular el color de afuera, no ignorarse.
+    else if (esColorNormal(colorCss ?? colorAttr)) estilo.color = undefined;
     pila.push({ tag, estilo });
   }
   // Sin párrafos vacíos al principio ni al final.

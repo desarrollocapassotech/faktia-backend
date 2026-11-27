@@ -33,6 +33,12 @@ describe('texto con formato limitado', () => {
     const una = sanearFormato('<span style="color:#0080ff">celeste</span>');
     expect(sanearFormato(una)).toBe(una);
   });
+  it('volver a "Normal" dentro de un texto con color le saca el color', () => {
+    expect(sanearFormato('<span class="c-rojo">Actualización <span style="color: rgb(27, 38, 45);">de textos</span></span>')).toBe(
+      '<p><span class="c-rojo">Actualización </span>de textos</p>',
+    );
+    expect(sanearFormato('<span style="color:#0080ff"><span style="color: #1b262d;">todo normal</span></span>')).toBe('<p>todo normal</p>');
+  });
   it('no deja pasar nada raro dentro del style', () => {
     expect(sanearFormato('<span style="color: red; background: url(javascript:x)">a</span>')).toBe('<p><span class="c-rojo">a</span></p>');
     expect(sanearFormato('<span style="color: #fff&quot;onmouseover=x">a</span>')).toBe('<p>a</p>');
