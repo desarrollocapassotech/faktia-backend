@@ -141,35 +141,41 @@ model Tenant {
   // Resumen diario por email a los usuarios con lo vencido y lo que vence en los próximos días.
   avisosEmail            Boolean       @default(true)
   diasAvisoVencimiento   Int           @default(3)
+  // Validez por defecto de un presupuesto nuevo (días desde su fecha).
+  diasValidezPresupuesto Int           @default(15)
   activo                 Boolean       @default(true)
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
-  usuarios             Usuario[]
-  integraciones        Integracion[]
-  tokensAcceso         TokenAcceso[]
-  puntosVenta          PuntoVenta[]
-  certificados         CertificadoArca[]
-  plantillaPdf         PlantillaPdf?
-  clientes             Cliente[]
-  referenciasClientes  ClienteReferenciaExterna[]
-  tarifas              Tarifa[]
-  plantillasMapeo      PlantillaMapeo[]
-  importaciones        Importacion[]
-  items                ItemFacturable[]
-  comprobantes         Comprobante[]
-  lineas               ComprobanteLinea[]
-  alicuotas            ComprobanteAlicuota[]
-  arcaLogs             ArcaLog[]
-  solicitudesIdem      SolicitudIdempotente[]
-  webhookSuscripciones WebhookSuscripcion[]
-  webhookEntregas      WebhookEntrega[]
-  recibos              Recibo[]
-  movimientosCc        MovimientoCuentaCorriente[]
-  imputacionesCc       ImputacionCuentaCorriente[]
-  proyectos            Proyecto[]
-  certificaciones      CertificacionHito[]
-  avisosEnviados       AvisoEmail[]
+  usuarios              Usuario[]
+  integraciones         Integracion[]
+  tokensAcceso          TokenAcceso[]
+  puntosVenta           PuntoVenta[]
+  certificados          CertificadoArca[]
+  plantillaPdf          PlantillaPdf?
+  clientes              Cliente[]
+  referenciasClientes   ClienteReferenciaExterna[]
+  tarifas               Tarifa[]
+  plantillasMapeo       PlantillaMapeo[]
+  importaciones         Importacion[]
+  items                 ItemFacturable[]
+  comprobantes          Comprobante[]
+  lineas                ComprobanteLinea[]
+  alicuotas             ComprobanteAlicuota[]
+  arcaLogs              ArcaLog[]
+  solicitudesIdem       SolicitudIdempotente[]
+  webhookSuscripciones  WebhookSuscripcion[]
+  webhookEntregas       WebhookEntrega[]
+  recibos               Recibo[]
+  movimientosCc         MovimientoCuentaCorriente[]
+  imputacionesCc        ImputacionCuentaCorriente[]
+  proyectos             Proyecto[]
+  certificaciones       CertificacionHito[]
+  avisosEnviados        AvisoEmail[]
+  presupuestos          Presupuesto[]
+  presupuestoItems      PresupuestoItem[]
+  itemsBiblioteca       ItemBiblioteca[]
+  observacionesCatalogo ObservacionCatalogo[]
 
   @@map("tenants")
 }
@@ -387,6 +393,7 @@ model Cliente {
   recibos       Recibo[]
   movimientosCc MovimientoCuentaCorriente[]
   proyectos     Proyecto[]
+  presupuestos  Presupuesto[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, claveDocumento])
@@ -794,6 +801,7 @@ model Proyecto {
   movimientosCc MovimientoCuentaCorriente[]
   comprobantes  Comprobante[]
   recibos       Recibo[]
+  presupuestos  Presupuesto[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, clienteId, nombre])
@@ -896,4 +904,122 @@ model AvisoEmail {
 
   @@unique([tenantId, fecha])
   @@map("avisos_email")
+}
+
+// ─────────────────────────────── Presupuestos ───────────────────────────────
+
+enum EstadoPresupuesto {
+  BORRADOR // editable
+  ENVIADO // ya se mandó al cliente: no se edita (se duplica)
+  ACEPTADO // puede crear un proyecto
+  RECHAZADO
+  VENCIDO // pasó la fecha de vencimiento sin aceptarse ni rechazarse
+}
+
+enum FormaCotizar {
+  POR_ITEM // cada ítem con su importe; el total es la suma
+  GLOBAL // varios trabajos y un solo total
+  SUPERFICIE // medidas, metros cuadrados a cubrir e importe
+}
+
+enum IvaPresupuesto {
+  SIN_IVA // no se menciona el IVA
+  NO_INCLUYE // se aclara "no incluye IVA"
+  DISCRIMINADO // subtotal, IVA y total con IVA
+}
+
+/// Presupuesto (no es comprobante fiscal: no va a ARCA ni genera deuda). Numeración P-0000001 por empresa.
+model Presupuesto {
+  id               String            @id @default(cuid())
+  tenantId         String
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  numero           Int
+  fecha            DateTime          @db.Date
+  fechaVencimiento DateTime          @db.Date
+  estado           EstadoPresupuesto @default(BORRADOR)
+  clienteId        String
+  cliente          Cliente           @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  titulo           String? // "Cubierta de galpón"
+  lugar            String? // obra o lugar del trabajo
+  moneda           Moneda            @default(ARS)
+  formaCotizar     FormaCotizar      @default(POR_ITEM)
+  // Solo SUPERFICIE: { ancho, largo, alturaLateral?, alturaCumbrera?, metrosCuadrados, precioMetroCuadrado? } (strings decimales).
+  superficie       Json?
+  importeGlobal    Decimal?          @db.Decimal(15, 2) // GLOBAL y SUPERFICIE sin precio por m²
+  ivaModo          IvaPresupuesto    @default(NO_INCLUYE)
+  alicuotaIva      Decimal           @default(21) @db.Decimal(5, 2)
+  subtotal         Decimal           @default(0) @db.Decimal(15, 2)
+  iva              Decimal           @default(0) @db.Decimal(15, 2)
+  total            Decimal           @default(0) @db.Decimal(15, 2)
+  // Observaciones elegidas del catálogo, copiadas: [{ texto, valor? }].
+  observaciones    Json              @default("[]")
+  notas            String? // texto libre que va antes de las observaciones
+  // Copias al guardar mientras es borrador: cambiar el cliente o la empresa después no lo modifica.
+  clienteSnapshot  Json
+  emisorSnapshot   Json
+  proyectoId       String? // proyecto creado desde este presupuesto aceptado
+  proyecto         Proyecto?         @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  duplicadoDeId    String?
+  creadoPorId      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  items PresupuestoItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, numero])
+  @@index([tenantId, estado])
+  @@index([tenantId, clienteId])
+  @@map("presupuestos")
+}
+
+model PresupuestoItem {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  presupuestoId String
+  presupuesto   Presupuesto @relation(fields: [tenantId, presupuestoId], references: [tenantId, id], onDelete: Cascade)
+  orden         Int
+  cantidad      String? // texto: "1", "120 m²", "4"
+  descripcion   String // con formato limitado (HTML saneado: p, b, i, u y colores de la paleta)
+  importe       Decimal?    @db.Decimal(15, 2) // solo POR_ITEM: total del renglón
+
+  @@index([tenantId, presupuestoId])
+  @@map("presupuesto_items")
+}
+
+/// Ítem frecuente: plantilla que se copia al presupuesto (editarlo ahí no cambia la biblioteca).
+model ItemBiblioteca {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  titulo      String
+  descripcion String // con formato limitado
+  categoria   String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, titulo])
+  @@map("items_biblioteca")
+}
+
+/// Observación del catálogo. `texto` puede llevar {valor} donde va lo que se completa (ej. "Plazo de obra: {valor}").
+model ObservacionCatalogo {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  texto         String
+  llevaValor    Boolean  @default(false)
+  valorSugerido String?
+  porDefecto    Boolean  @default(false) // viene tildada en un presupuesto nuevo
+  orden         Int      @default(0)
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, texto])
+  @@map("observaciones_catalogo")
 }

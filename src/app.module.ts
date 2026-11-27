@@ -11,6 +11,7 @@ import { ClientesModule } from './modules/clientes';
 import { ComprobantesModule } from './modules/comprobantes';
 import { CuentaCorrienteModule } from './modules/cuenta-corriente';
 import { ImportacionesModule } from './modules/importaciones';
+import { PresupuestosModule } from './modules/presupuestos';
 import { ProduccionModule } from './modules/produccion';
 import { RecibosModule } from './modules/recibos';
 import { TenantsModule } from './modules/tenants';
@@ -37,6 +38,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     ApiPublicaModule,
     ProduccionModule,
     AvisosModule,
+    PresupuestosModule,
   ],
   controllers: [HealthController],
 })

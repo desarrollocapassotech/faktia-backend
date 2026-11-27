@@ -85,6 +85,13 @@ export class ActualizarPreferenciasDto {
   @Min(0)
   @Max(30)
   diasAvisoVencimiento?: number;
+
+  /** Validez por defecto de un presupuesto nuevo, en días. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  diasValidezPresupuesto?: number;
 }
 
 export class CrearPuntoVentaDto {

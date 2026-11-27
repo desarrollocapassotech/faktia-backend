@@ -44,6 +44,21 @@
 - `Tenant.avisosEmail`, `Tenant.diasAvisoVencimiento`. `UsuariosService` exportado por `auth` (solo emails de usuarios activos).
 - Tests: `correo.spec.ts`, `email.spec.ts`, e2e `src/ale-avisos.e2e.spec.ts`.
 
+### Fase 4: Presupuestos
+
+- **Módulo `presupuestos`** (`@Modulo('presupuestos')`): tablas `presupuestos`, `presupuesto_items`, `items_biblioteca`, `observaciones_catalogo`; `Tenant.diasValidezPresupuesto` (default 15, Configuración → Preferencias).
+- **Numeración** P-0000001 correlativa por empresa (máximo + 1 con advisory lock).
+- **Tres formas de cotizar:** por ítem (suma de importes), total global y por superficie (ancho, largo, alturas, m² y precio por m² o total).
+- **IVA:** sin mencionar, "no incluye IVA" (agrega la observación) o discriminado con alícuota elegible (21% por defecto; 10,5, 27, 5, 2,5, 0).
+- **Texto con formato limitado** (`domain/formato.ts`): el HTML del editor se sanea a un HTML canónico con `<p>`, `<b>`, `<i>`, `<u>` y `<span class="c-rojo|azul|verde|naranja">`; los demás colores van al más cercano de la paleta y lo demás se descarta. El PDF lo dibuja con los mismos colores.
+- **Biblioteca:** ítems frecuentes (plantillas que se copian) y observaciones con `{valor}` a completar, `porDefecto` y valor sugerido. Carga inicial de herrería: `npm run biblioteca-presupuestos -- --slug …` o el botón en la pantalla.
+- **Estados:** borrador, enviado, aceptado, rechazado y vencido. Solo se edita un borrador. Pasa solo a vencido (al consultar y con un cron diario). Duplicar (con fecha y número nuevos) y "duplicar y reemplazar" (el original queda rechazado).
+- **Snapshots** del cliente y del emisor en cada guardado del borrador.
+- **Crear la obra** desde un presupuesto aceptado: cliente, nombre (trabajo o lugar), ubicación, moneda, acordado y hitos (la pantalla muestra la condición de pago para cargarlos).
+- **PDF** con el layout compartido nuevo (`src/shared/pdf/documento-pdf.ts`): encabezado con logo y datos de la empresa, cliente, obra, ítems con formato, superficie, totales, observaciones con valores y firma.
+- Frontend: listado con filtros por estado, editor (cliente con alta rápida, biblioteca, editor de texto con formato, formas de cotizar, IVA, observaciones, notas, totales en vivo), acciones por estado, crear obra y la pantalla de biblioteca.
+- Tests: `formato.spec.ts`, `presupuesto.spec.ts` (Diego Streck, Municipalidad, LAR), e2e `src/ale-presupuestos.e2e.spec.ts` y aislamiento ampliado.
+
 ## 2. Decisiones tomadas por mi cuenta
 
 | # | Tema | Decisión |
@@ -64,6 +79,12 @@
 | R15 | Avisos (pregunta abierta del doc §14) | Destinatarios: todos los usuarios activos de la empresa. Resumen diario con lo vencido y lo que vence en los próximos 3 días (configurable por empresa). A las 8 de Argentina. Si no hay nada, no se manda. |
 | R16 | Render free | **El plan free de Render duerme el servidor sin tráfico y el cron de las 8 no corre.** Opciones: pasar a un plan pago, un cron externo que pegue a `/api/health` unos minutos antes (por ejemplo, cron-job.org a las 7:55) o un endpoint protegido que dispare el envío. Lo dejo anotado sin elegir. |
 | R17 | nodemailer | Versión 10.4.0 fija: las anteriores a 10.1.4 tienen avisos de seguridad y las más nuevas tienen menos de dos semanas. |
+| R18 | Importe de un ítem | En "por ítem" el importe es el total del renglón (no precio unitario): así están los presupuestos de Ale. La cantidad es texto libre ("4", "320 m²"). |
+| R19 | Acordado al crear la obra | "No incluye IVA": el acordado es el neto y la obra queda en "más IVA". IVA discriminado o sin mencionar: el acordado es el total y la obra queda en "acordado final". |
+| R20 | Edición | Solo se edita un borrador. Un enviado puede volver a borrador si no venció. El resto se duplica. |
+| R21 | Borrar | Solo se borran borradores (puede quedar un salto en la numeración). |
+| R22 | Formato | Paleta de 4 colores (rojo, azul, verde, naranja) más el normal, tomados de los tokens. Negrita y cursiva juntas se dibujan en negrita (la fuente no tiene negrita cursiva). |
+| R23 | Biblioteca inicial | Los textos de `biblioteca-inicial.ts` los escribí a partir del doc: **hay que reemplazarlos con los presupuestos reales de Ale** antes de cargarlos en su empresa. |
 | R7 | Clientes sin documento | Se siguen guardando como `CONSUMIDOR_FINAL` con número "0" (lo que ya entendía ARCA). En pantalla el tipo se llama "Sin documento". |
 
 ## 3. BLOQUEANTES
@@ -75,6 +96,7 @@ Ninguno por ahora.
 - [ ] Aplicar las migraciones nuevas en la base (con tu OK): `npx prisma migrate deploy`.
 - [ ] Configurar SMTP en `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`), reiniciar y en Configuración → Preferencias tocar "Mandarme una prueba". Revisar que llegue y cómo se ve (Gmail y celular).
 - [ ] Decidir cómo despertar el servidor para el cron de las 8 en Render (ver R16) y cargar las `SMTP_*` en Render.
+- [ ] Ajustar `src/modules/presupuestos/biblioteca-inicial.ts` con los presupuestos reales de Ale y cargar: `npm run biblioteca-presupuestos -- --slug <slug de Ale>`.
 - [ ] Probar la cotización real de ARCA: en una obra en dólares sin TC fijo, "Registrar entrega" en pesos. Tiene que sugerir el TC de `FEParamGetCotizacion` (necesita `AFIP_SDK_API_KEY`).
 
 ## 5. Cómo revisarlo

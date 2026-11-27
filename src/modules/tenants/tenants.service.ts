@@ -82,6 +82,7 @@ export interface PreferenciasEmpresa {
   etiquetaProyectoPlural: string;
   avisosEmail: boolean;
   diasAvisoVencimiento: number;
+  diasValidezPresupuesto: number;
 }
 
 function detectarMimeImagen(buf: Buffer): 'image/png' | 'image/jpeg' | null {
@@ -334,7 +335,7 @@ export class TenantsService {
   async obtenerPreferencias(tenantId: string): Promise<PreferenciasEmpresa> {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { modulosHabilitados: true, etiquetaProyecto: true, etiquetaProyectoPlural: true, avisosEmail: true, diasAvisoVencimiento: true },
+      select: { modulosHabilitados: true, etiquetaProyecto: true, etiquetaProyectoPlural: true, avisosEmail: true, diasAvisoVencimiento: true, diasValidezPresupuesto: true },
     });
     if (!t) throw new NotFoundException('Empresa no encontrada.');
     return {
@@ -343,6 +344,7 @@ export class TenantsService {
       etiquetaProyectoPlural: t.etiquetaProyectoPlural,
       avisosEmail: t.avisosEmail,
       diasAvisoVencimiento: t.diasAvisoVencimiento,
+      diasValidezPresupuesto: t.diasValidezPresupuesto,
     };
   }
 
@@ -355,6 +357,7 @@ export class TenantsService {
         etiquetaProyectoPlural: dto.etiquetaProyectoPlural?.trim(),
         avisosEmail: dto.avisosEmail,
         diasAvisoVencimiento: dto.diasAvisoVencimiento,
+        diasValidezPresupuesto: dto.diasValidezPresupuesto,
       },
     });
     return this.obtenerPreferencias(tenantId);

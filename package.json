@@ -23,6 +23,8 @@
     "crear-usuario": "ts-node scripts/crear-usuario.ts",
     "configurar-modulos": "ts-node scripts/configurar-modulos.ts",
     "datos-ejemplo-ale": "ts-node scripts/datos-ejemplo-ale.ts",
+    "biblioteca-presupuestos": "ts-node scripts/biblioteca-presupuestos.ts",
+    "muestras-pdf": "ts-node scripts/muestras-pdf.ts",
     "postinstall": "prisma generate",
     "openapi": "nest build && node dist/generar-openapi.js",
     "deps": "depcruise src --config .dependency-cruiser.cjs"
