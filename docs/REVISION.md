@@ -6,6 +6,21 @@
 
 ## 1. Resumen por fase
 
+**PRs en borrador contra `main`** (rama `claude/exciting-mccarthy-r0epck` en los dos repos; ver R1):
+- Backend: https://github.com/desarrollocapassotech/faktia-backend/pull/1
+- Frontend: https://github.com/desarrollocapassotech/faktia-frontend/pull/1
+
+| Fase | Backend | Frontend |
+|---|---|---|
+| 1. Base | `abf6221` | `4656deb` |
+| 2. Proyectos + cuenta corriente + recibos | `a76aff1` | `fbf62e0` |
+| 3. Avisos por email | `01ef6fc` | `9fa1649` |
+| 4. Presupuestos | `ad8dfe6` | `532616b` |
+| 5. Materiales + proveedores | `b709c95` | `d71c345` |
+| 6. Documentación | (último commit) | — |
+
+Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas aplican sobre una base vacía sin diferencias con el schema, y pasan typecheck, lint, `deps`, build (los dos repos) y **393 tests** del backend, incluidos los e2e de aislamiento y los cuatro nuevos (`ale-base`, `ale-proyectos`, `ale-avisos`, `ale-presupuestos`, `ale-materiales`). Falla solo el test conocido de `generar-recibo.spec.ts` (CLAUDE.md). Las pantallas se recorrieron con Playwright contra el backend real y en 390 px no hay scroll horizontal.
+
 ### Fase 1: Base
 
 - **Módulos por empresa:** `Tenant.modulosHabilitados` (lista en `src/shared/modulos/modulos.ts`).
@@ -59,6 +74,13 @@
 - Frontend: listado con filtros por estado, editor (cliente con alta rápida, biblioteca, editor de texto con formato, formas de cotizar, IVA, observaciones, notas, totales en vivo), acciones por estado, crear obra y la pantalla de biblioteca.
 - Tests: `formato.spec.ts`, `presupuesto.spec.ts` (Diego Streck, Municipalidad, LAR), e2e `src/ale-presupuestos.e2e.spec.ts` y aislamiento ampliado.
 
+### Fase 6: Documentación
+
+- `docs/ARCHITECTURE.md`: módulos nuevos en §4 y decisiones D7 a D12 en §10.
+- `docs/PLAN.md`: fase "Ale Herrería" con el estado de cada subfase.
+- `docs/openapi.json` regenerado: solo documenta la API pública `/v1` (que ganó `proyectoId` en comprobantes). Las rutas nuevas son internas del frontend, como el resto de la configuración, y no van al Swagger público.
+- PDFs de muestra en `docs/muestras/` (`npm run muestras-pdf` los regenera).
+
 ### Fase 5: Materiales + Proveedores
 
 - **Módulo `materiales`** (`@Modulo('materiales')`): tablas `proveedores`, `materiales`, `listados_materiales`, `renglones_listado`. Rutas `/proveedores`, `/materiales`, `/listados-materiales`.
@@ -102,11 +124,20 @@
 
 ## 3. BLOQUEANTES
 
-Ninguno por ahora.
+Nada quedó sin hacer por falta de una decisión tuya. Lo único que necesita tu OK explícito antes de tocar algo real:
+
+- **Pasar a `main`** (R1): mergear los PRs despliega en Render y corre `prisma migrate deploy` contra la base de producción. Las migraciones solo agregan (tablas, columnas con default, valores de enum) y relajan un unique, así que son compatibles con el código desplegado, pero aplicarlas es tu decisión.
+- **Render free y el cron de avisos** (R16): elegir cómo despertar el servidor a las 8.
 
 ## 4. Pendiente local
 
-- [ ] Aplicar las migraciones nuevas en la base (con tu OK): `npx prisma migrate deploy`.
+En orden, desde `faktia-backend` con tu `.env` (la base es la de producción: revisá antes):
+
+- [ ] `npm ci` en los dos repos (nodemailer es dependencia nueva).
+- [ ] Aplicar las migraciones (con tu OK): `npx prisma migrate deploy`. Son 5: `20261126120000_ale_base`, `20261126130000_ale_proyectos`, `20261126140000_ale_avisos`, `20261126150000_ale_presupuestos`, `20261127120000_ale_materiales`.
+- [ ] Correr todo: `npm run typecheck && npm run lint && npm run deps && npm test && npm run build`. Los e2e crean empresas `E2E …` y las borran al terminar.
+- [ ] Crear una empresa de ejemplo para recorrer (no es la de Ale): `NUEVA_PASSWORD='…' npm run datos-ejemplo-ale -- --slug ale-herreria-demo --email <tu email>`. Carga clientes, obras con hitos, una certificación, entregas (con y sin recibo, una en pesos para una obra en dólares), presupuestos y el listado del galpón.
+- [ ] Crear la empresa real de Ale con `npm run crear-tenant` (o desde el registro), su usuario con `crear-usuario`, y después: `npm run configurar-modulos -- --slug <slug> --ocultar importaciones,integraciones,webhooks,recibos-pago --etiqueta Obra --etiqueta-plural Obras`.
 - [ ] Configurar SMTP en `.env` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`), reiniciar y en Configuración → Preferencias tocar "Mandarme una prueba". Revisar que llegue y cómo se ve (Gmail y celular).
 - [ ] Decidir cómo despertar el servidor para el cron de las 8 en Render (ver R16) y cargar las `SMTP_*` en Render.
 - [ ] Ajustar `src/modules/presupuestos/biblioteca-inicial.ts` con los presupuestos reales de Ale y cargar: `npm run biblioteca-presupuestos -- --slug <slug de Ale>`.
@@ -114,4 +145,20 @@ Ninguno por ahora.
 
 ## 5. Cómo revisarlo
 
-(Se completa al terminar.)
+**Primero, los PDFs** de `docs/muestras/` (son los documentos que va a mandar Ale):
+- `presupuesto-LAR-superficie.pdf`, `presupuesto-Municipalidad-global.pdf`, `presupuesto-DiegoStreck-por-item.pdf`: las tres formas de cotizar, IVA no incluido / discriminado / sin mencionar, observaciones con valores, texto con formato y firma.
+- `recibo-LAR-anticipo.pdf`: el recibo de Costa Doll con el anticipo (acordado, entregas, saldo $14.705.000, "a certificar" y saldo al terminar).
+- `recibo-WilsonCarrillo-USD.pdf`: obra en dólares cobrada en pesos, con las entregas de 2024 sin recibo y la equivalencia de TC.
+- `listado-galpon-para-proveedor.pdf` y `listado-galpon-precios-venta.pdf`: 34 renglones, sin precios y con precios de venta (totales en pesos y dólares).
+
+**Después, el código** en este orden: `cuenta-corriente/domain/proyecto.ts` (todas las reglas de plata, puras y con tests), `cuenta-corriente.service.ts` (`imputarProyecto`, `registrarAnulaciones`, IVA de facturas), `proyectos/proyectos.service.ts`, `presupuestos/domain/formato.ts` y `shared/pdf/documento-pdf.ts`.
+
+**Recorrido por pantalla** con la empresa de ejemplo:
+1. Entrás y caés en **Obras** (Ale no ve Importaciones, Integraciones ni Webhooks; en Nuevo comprobante → Recibo no está "De pago").
+2. **Galpón sucursal Costa Doll:** saldo $14.705.000, exigible $6.320.000, vencido $5.000.000 (la certificación). Registrá una entrega de $6.000.000: se imputa a la certificación y al hito final, y se abre el recibo con el estado de la obra. Probá "Certificar" con el ayudante de %, "Adicional" y "Editar plan" (un hito cobrado no deja cambiar su importe).
+3. **Tinglado casa** (Wilson Carrillo, en dólares): entregas de 2024 sin recibo y una en pesos con TC. Registrá otra en pesos: sugiere el TC fijo de la obra.
+4. **Comprobantes → Recibos:** abrí un recibo de obra y anulalo: queda marcado y la obra vuelve a tener ese saldo.
+5. **Cuenta corriente:** "Por cobrar" aclara cuánto falta certificar; en la cuenta de La Agrícola Regional cada movimiento muestra su obra.
+6. **Presupuestos:** P-0000003 (aceptado, ya con obra), P-0000001 (enviado), P-0000002 (borrador). Armá uno nuevo con "Agregar de la biblioteca", el editor de formato y las tres formas de cotizar; marcá aceptado y "Crear obra".
+7. **Materiales:** el listado del galpón; cambiá "Precios que muestra" y mirá el PDF. Catálogo y proveedores en las otras pestañas.
+8. **Configuración → Preferencias:** etiqueta de proyectos, módulos (solo lectura), validez de presupuestos y avisos (vista previa de hoy y "Mandarme una prueba"; sin SMTP queda en el log). **Plantilla PDF:** firma. **Datos del emisor:** teléfono y email.

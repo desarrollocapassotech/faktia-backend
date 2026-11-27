@@ -175,6 +175,12 @@ Regla: un módulo solo importa **el `index.ts` público** de otro (interfaces + 
 | `pdf` | Render de comprobantes con plantilla del tenant | `PdfComprobanteRenderer` | nada (recibe datos) |
 | `recibos` | Generador de recibos independiente | `generarRecibo` (en `core/`) | `core/`: **nada** (ni Prisma ni otros módulos). El wrapper Nest: `tenants` (datos del emisor y plantilla) |
 | `api-publica` | Endpoints externos, idempotencia, webhooks salientes | Controllers `/api/v1/*` | `importaciones`, `comprobantes`, `auth` (guard) |
+| `cuenta-corriente` | Movimientos DEBE/HABER, imputaciones, saldos total y exigible. Incluye **proyectos** (obras): plan de pagos (hitos), certificaciones, IVA de facturas por obra, tipo de cambio, entregas | `CuentaCorrienteService`, `ProyectosService`, `PROVEEDOR_COTIZACION`, `HitoDto` | `clientes`, `comprobantes`, `recibos`, `tenants`, `arca` (cotización) |
+| `avisos` | Resumen diario de vencimientos por email | `AvisosService` | `auth` (`UsuariosService`), `clientes`, `cuenta-corriente`, `tenants`, `shared/email` |
+| `presupuestos` | Presupuestos (P-0000001), biblioteca de ítems, catálogo de observaciones, texto con formato, PDF, obra desde aceptado | `PresupuestosService`, `generarPdfPresupuesto` | `clientes`, `cuenta-corriente` (proyectos), `tenants` |
+| `materiales` | Proveedores, catálogo de materiales, listados por obra con PDF | `MaterialesService`, `generarPdfListado` | `tenants` |
+
+Módulos por empresa: `Tenant.modulosHabilitados` (`src/shared/modulos/modulos.ts`). Cada controller se marca con `@Modulo('…')` y el `AuthGuard` responde 403 si la empresa no lo tiene (sesión o API key). El frontend arma el menú con los módulos del perfil (`GET /auth/me`).
 
 Comunicación asincrónica: `@nestjs/event-emitter` para `comprobante.emitido`, `comprobante.rechazado` e `importacion.confirmada`. `api-publica` escucha y encola webhooks. Así `comprobantes` no conoce a `api-publica`.
 
@@ -1303,3 +1309,37 @@ El módulo `recibos` genera los dos tipos (`tipo: 'COBRO' | 'PAGO'`), con datos,
 - Neon: proyecto nuevo `facturador` con ramas `develop` y `production`.
 
 Se crea en la Fase 1.
+
+### D7. Proyectos sobre la cuenta corriente (Ale Herrería, 2026-11)
+
+- `Proyecto` es la entidad genérica; en pantalla se muestra con `Tenant.etiquetaProyecto` / `etiquetaProyectoPlural` ("Obra" / "Obras").
+- Vive en el módulo `cuenta-corriente`: un módulo aparte formaría un ciclo (la cuenta necesita el modo de IVA del proyecto para las facturas y el proyecto necesita la cuenta para hitos y saldos). Los demás módulos (comprobantes, recibos, presupuestos, materiales) ven el proyecto solo por FK compuesta `(tenantId, proyectoId)`.
+- No guarda saldos. El acordado se divide en hitos: `MovimientoCuentaCorriente` DEBE con origen `ACUERDO`, `orden`, vencimiento opcional y `porCertificacion`. Los hitos suman el acordado y solo se editan sin imputaciones ni certificaciones. Los adicionales son DEBE `MANUAL` con proyecto.
+- **Certificaciones** (`CertificacionHito`): parte exigible de un hito por certificación; su suma no supera el hito. Saldo total = DEBE − HABER; saldo exigible = total − lo que falta certificar. Imputación, vencidos, resumen y avisos trabajan sobre lo exigible.
+- **Imputación por proyecto:** un HABER con proyecto se imputa solo a DEBE de ese proyecto (hitos por orden, después por vencimiento); sin proyecto, solo a DEBE sin proyecto. `imputarProyecto` corre después de cada cambio y nunca toca lo ya imputado.
+- **`ModoIvaProyecto`:** `MAS_IVA` (default; la factura suma IVA + tributos, la NC los resta), `ACORDADO_FINAL` (la factura queda en $0). Sin acordado, la factura suma su total. Cambiar el modo desimputa, recalcula y vuelve a imputar.
+- **Tipo de cambio:** editado en el pago → `Proyecto.tipoCambioFijo` → cotización de ARCA (`FEParamGetCotizacion`, puerto `PROVEEDOR_COTIZACION`). Se guardan `monedaOrigen`, `importeOrigen` y `tipoCambio`.
+- **Recibos de obra:** `Recibo.proyectoId` + `estadoProyecto` (copia del estado al guardar) que el PDF muestra (acordado, entregas, saldo, pendientes, equivalencia). Anular un recibo lo marca y la cuenta revierte el cobro con un DEBE origen `ANULACION` imputado a él.
+
+### D8. Módulos por empresa
+
+Lista fija en `shared/modulos`; los habilita el administrador de Faktia (`npm run configurar-modulos`). Una empresa nueva trae todos. La empresa ve los suyos en Configuración → Preferencias.
+
+### D9. Avisos por email
+
+Puerto `EmailPort` (`shared/email`) con adaptador SMTP (nodemailer) y uno que solo registra (default sin SMTP). Job diario `@nestjs/schedule` a las 8 de Argentina, uno por empresa y día (`AvisoEmail` con unique por fecha), a todos los usuarios activos, con lo vencido y lo que vence en `diasAvisoVencimiento` días. En el plan free de Render el servidor se duerme y el job no corre.
+
+### D10. Presupuestos y documentos no fiscales
+
+- Numeración P-0000001 por empresa (máximo + 1 con advisory lock). Snapshots de cliente y emisor mientras es borrador; enviado en adelante no se edita (se duplica). Pasa solo a vencido.
+- Texto con formato limitado: el servidor sanea el HTML del editor a `<p>`, `<b>`, `<i>`, `<u>` y `<span class="c-…">` (paleta de 4 colores); el PDF usa los mismos colores.
+- Presupuestos y listados de materiales comparten `shared/pdf/documento-pdf.ts` (encabezado con logo, tablas con formato, totales, observaciones, firma de la plantilla y "Generado con faktia").
+
+### D11. Clientes sin documento
+
+`Cliente.claveDocumento` (`TIPO:NUMERO`, null sin documento) con unique por empresa reemplaza al unique `(tenantId, tipoDocumento, numeroDocumento)`: puede haber varios clientes sin documento y no se repite un CUIT o DNI. El CUIT solo hace falta para facturar.
+
+### D12. Materiales
+
+Proveedores y catálogo genéricos (costo y venta, cada uno en pesos o dólares). Los listados copian nombre, unidad y precios; totales por moneda; el catálogo nuevo no cambia listados anteriores (salvo "actualizar precios", a pedido). Sin stock ni cálculo de cantidades.
+
