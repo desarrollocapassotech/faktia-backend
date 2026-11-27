@@ -19,7 +19,7 @@
 | 5. Materiales + proveedores | `b709c95` | `d71c345` |
 | 6. Documentación | (último commit) | — |
 
-Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas aplican sobre una base vacía sin diferencias con el schema, y pasan typecheck, lint, `deps`, build (los dos repos) y **393 tests** del backend, incluidos los e2e de aislamiento y los cuatro nuevos (`ale-base`, `ale-proyectos`, `ale-avisos`, `ale-presupuestos`, `ale-materiales`). Falla solo el test conocido de `generar-recibo.spec.ts` (CLAUDE.md). Las pantallas se recorrieron con Playwright contra el backend real y en 390 px no hay scroll horizontal.
+Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas aplican sobre una base vacía sin diferencias con el schema, y pasan typecheck, lint, `deps`, build (los dos repos) y **393 tests** del backend, incluidos el e2e de aislamiento y los cinco nuevos (`ale-base`, `ale-proyectos`, `ale-avisos`, `ale-presupuestos`, `ale-materiales`). Falla solo el test conocido de `generar-recibo.spec.ts` (CLAUDE.md). Las pantallas se recorrieron con Playwright contra el backend real y en 390 px no hay scroll horizontal.
 
 ### Fase 1: Base
 
