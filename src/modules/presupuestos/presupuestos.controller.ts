@@ -5,6 +5,7 @@ import {
   CambiarEstadoDto,
   CrearProyectoDesdePresupuestoDto,
   DuplicarDto,
+  EnviarPresupuestoEmailDto,
   GuardarPresupuestoDto,
   ItemBibliotecaDto,
   ListarPresupuestosQuery,
@@ -106,6 +107,13 @@ export class PresupuestosController {
   @Post(':id/proyecto')
   crearProyecto(@CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() dto: CrearProyectoDesdePresupuestoDto) {
     return this.presupuestos.crearProyecto(auth, id, dto);
+  }
+
+  /** Manda el PDF por email (503 si el servidor no tiene SMTP). */
+  @Post(':id/enviar-email')
+  @HttpCode(200)
+  enviarEmail(@CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() dto: EnviarPresupuestoEmailDto) {
+    return this.presupuestos.enviarPorEmail(auth.tenantId, id, dto);
   }
 
   @Get(':id/pdf')

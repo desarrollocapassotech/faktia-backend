@@ -1,13 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma, type EstadoPresupuesto, type Presupuesto, type PresupuestoItem } from '@prisma/client';
 import type { AuthContext } from '../auth';
 import { ClientesService } from '../clientes';
 import { ProyectosService } from '../cuenta-corriente';
 import { TenantsService } from '../tenants';
+import { EMAIL_PORT, type EmailPort } from '../../shared/email/email';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { formatearCuit } from '../../shared/util/cuit';
 import { ITEMS_INICIALES, OBSERVACIONES_INICIALES } from './biblioteca-inicial';
+import { asuntoPresupuesto, htmlPresupuesto, textoPresupuesto, type CorreoPresupuesto } from './domain/correo-presupuesto';
 import { sanearFormato, textoPlano } from './domain/formato';
 import {
   acordadoDesdePresupuesto,
@@ -21,6 +23,7 @@ import {
 } from './domain/presupuesto';
 import type {
   CrearProyectoDesdePresupuestoDto,
+  EnviarPresupuestoEmailDto,
   GuardarPresupuestoDto,
   ItemBibliotecaDto,
   ListarPresupuestosQuery,
@@ -69,6 +72,7 @@ export class PresupuestosService {
     private readonly clientes: ClientesService,
     private readonly tenants: TenantsService,
     private readonly proyectos: ProyectosService,
+    @Inject(EMAIL_PORT) private readonly email: EmailPort,
   ) {}
 
   // ───────────────────────────── Lectura ─────────────────────────────
@@ -364,12 +368,55 @@ export class PresupuestosService {
   }
 
   async pdf(tenantId: string, id: string) {
+    const { pdf, filename } = await this.armarPdf(tenantId, await this.buscar(tenantId, id));
+    return { pdf, filename };
+  }
+
+  /**
+   * Manda el presupuesto por email con el PDF adjunto y, si era un borrador, lo marca como enviado.
+   * El texto lo genera el sistema (domain/correo-presupuesto.ts); las respuestas van al email de la empresa.
+   * Sin SMTP configurado responde 503: no se finge un envío que solo quedaría en el log.
+   */
+  async enviarPorEmail(tenantId: string, id: string, dto: EnviarPresupuestoEmailDto) {
     const p = await this.buscar(tenantId, id);
+    if (this.email.tipo !== 'smtp') {
+      throw new ServiceUnavailableException('El envío de correos no está configurado en el servidor. Compartilo por WhatsApp o descargá el PDF.');
+    }
+    const { pdf, filename, colorPrimario, etiquetaProyecto } = await this.armarPdf(tenantId, p);
+    const emisor = p.emisorSnapshot as unknown as EmisorSnapshot;
+    const correo: CorreoPresupuesto = {
+      numero: numeroPresupuesto(p.numero),
+      titulo: p.titulo,
+      lugar: p.lugar,
+      etiquetaProyecto,
+      fecha: aYmd(p.fecha),
+      fechaVencimiento: aYmd(p.fechaVencimiento),
+      moneda: p.moneda,
+      total: p.total.toFixed(2),
+      ivaModo: p.ivaModo,
+      cliente: (p.clienteSnapshot as unknown as ClienteSnapshot).razonSocial,
+      emisor: { nombre: emisor.nombre, cuit: emisor.cuit ? formatearCuit(emisor.cuit) : null, domicilio: emisor.domicilio, telefono: emisor.telefono, email: emisor.email },
+      colorPrimario,
+    };
+    await this.email.enviar({
+      para: dto.para,
+      asunto: asuntoPresupuesto(correo),
+      texto: textoPresupuesto(correo),
+      html: htmlPresupuesto(correo),
+      responderA: emisor.email ?? undefined,
+      adjuntos: [{ nombre: filename, contenido: pdf, tipo: 'application/pdf' }],
+    });
+    // Mandarlo desde el sistema lo marca como enviado, solo si era un borrador (no toca otros estados).
+    const { count } = await this.prisma.presupuesto.updateMany({ where: { tenantId, id, estado: 'BORRADOR' }, data: { estado: 'ENVIADO' } });
+    return { enviado: true, para: dto.para, marcadoEnviado: count > 0 };
+  }
+
+  private async armarPdf(tenantId: string, p: PresupuestoConItems) {
     const [plantilla, { etiquetaProyecto }] = await Promise.all([this.tenants.obtenerPlantilla(tenantId), this.tenants.obtenerPreferencias(tenantId)]);
     const pdf = await generarPdfPresupuesto(this.vista(p), { colorPrimario: plantilla.colorPrimario, logo: plantilla.logo, firmaTexto: plantilla.firmaTexto }, etiquetaProyecto);
     const cliente = (p.clienteSnapshot as unknown as ClienteSnapshot).razonSocial;
     const slug = cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-    return { pdf, filename: `Presupuesto_${numeroPresupuesto(p.numero)}_${slug || 'cliente'}.pdf` };
+    return { pdf, filename: `Presupuesto_${numeroPresupuesto(p.numero)}_${slug || 'cliente'}.pdf`, colorPrimario: plantilla.colorPrimario, etiquetaProyecto };
   }
 
   // ───────────────────────────── Biblioteca ─────────────────────────────

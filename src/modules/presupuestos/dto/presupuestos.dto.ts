@@ -2,8 +2,10 @@ import { EstadoPresupuesto, FormaCotizar, IvaPresupuesto, Moneda } from '@prisma
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsEmail,
   IsEnum,
   IsIn,
   IsInt,
@@ -188,6 +190,16 @@ export class CrearProyectoDesdePresupuestoDto {
   @ValidateNested({ each: true })
   @Type(() => HitoDto)
   hitos?: HitoDto[];
+}
+
+export class EnviarPresupuestoEmailDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Poné al menos un email.' })
+  @ArrayMaxSize(5, { message: 'Se puede mandar a 5 emails como máximo.' })
+  @Transform(({ value }: { value: unknown }) => (Array.isArray(value) ? value.map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v)) : value))
+  @IsEmail({}, { each: true, message: 'Hay un email que no es válido.' })
+  @MaxLength(200, { each: true })
+  para: string[];
 }
 
 export class ListarPresupuestosQuery {

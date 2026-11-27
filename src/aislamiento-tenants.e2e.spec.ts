@@ -250,6 +250,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['POST', `/presupuestos/${a.presupuesto}/duplicar`, {}],
     ['POST', `/presupuestos/${a.presupuesto}/proyecto`, {}],
     ['GET', `/presupuestos/${a.presupuesto}/pdf`],
+    ['POST', `/presupuestos/${a.presupuesto}/enviar-email`, { para: ['intruso@ejemplo.com'] }],
     ['PUT', `/presupuestos/biblioteca/items/${a.itemBiblioteca}`, { titulo: 'Hackeado', descripcion: 'x' }],
     ['DELETE', `/presupuestos/biblioteca/items/${a.itemBiblioteca}`],
     ['PUT', `/presupuestos/biblioteca/observaciones/${a.observacion}`, { texto: 'Hackeado' }],

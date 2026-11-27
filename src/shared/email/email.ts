@@ -8,6 +8,9 @@ export interface Email {
   asunto: string;
   html: string;
   texto: string;
+  /** Las respuestas van acá (por ejemplo, al email de la empresa que manda el documento). */
+  responderA?: string;
+  adjuntos?: Array<{ nombre: string; contenido: Buffer; tipo: string }>;
 }
 
 /** Puerto de envío de emails. Los módulos dependen de esto, no de nodemailer. */
@@ -27,7 +30,8 @@ export class EmailLog implements EmailPort {
 
   async enviar(email: Email): Promise<void> {
     this.enviados.push(email);
-    this.logger.log(`(sin SMTP) Para: ${email.para.join(', ')} · Asunto: ${email.asunto}\n${email.texto}`);
+    const adjuntos = email.adjuntos?.length ? `\nAdjuntos: ${email.adjuntos.map((a) => a.nombre).join(', ')}` : '';
+    this.logger.log(`(sin SMTP) Para: ${email.para.join(', ')} · Asunto: ${email.asunto}\n${email.texto}${adjuntos}`);
   }
 }
 
@@ -55,7 +59,15 @@ export class EmailSmtp implements EmailPort {
   }
 
   async enviar(email: Email): Promise<void> {
-    await this.transporte.sendMail({ from: this.config.from, to: email.para, subject: email.asunto, html: email.html, text: email.texto });
+    await this.transporte.sendMail({
+      from: this.config.from,
+      to: email.para,
+      replyTo: email.responderA,
+      subject: email.asunto,
+      html: email.html,
+      text: email.texto,
+      attachments: email.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo })),
+    });
   }
 }
 
