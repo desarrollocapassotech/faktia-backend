@@ -65,7 +65,7 @@ Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas a
 - **Numeración** P-0000001 correlativa por empresa (máximo + 1 con advisory lock).
 - **Tres formas de cotizar:** por ítem (suma de importes), total global y por superficie (ancho, largo, alturas, m² y precio por m² o total).
 - **IVA:** sin mencionar, "no incluye IVA" (agrega la observación) o discriminado con alícuota elegible (21% por defecto; 10,5, 27, 5, 2,5, 0).
-- **Texto con formato limitado** (`domain/formato.ts`): el HTML del editor se sanea a un HTML canónico con `<p>`, `<b>`, `<i>`, `<u>` y `<span class="c-rojo|azul|verde|naranja">`; los demás colores van al más cercano de la paleta y lo demás se descarta. El PDF lo dibuja con los mismos colores.
+- **Texto con formato limitado** (`domain/formato.ts`): el HTML del editor se sanea a un HTML canónico con `<p>`, `<b>`, `<i>`, `<u>` y `<span class="c-rojo|azul|verde|naranja">` para la paleta fija y `<span style="color:#rrggbb">` para cualquier otro color (normalizado a hex: no entra otra cosa en el style); negro y el grafito del texto quedan sin color, y lo demás se descarta. El PDF lo dibuja con los mismos colores.
 - **Biblioteca:** ítems frecuentes (plantillas que se copian) y observaciones con `{valor}` a completar, `porDefecto` y valor sugerido. Carga inicial de herrería: `npm run biblioteca-presupuestos -- --slug …` o el botón en la pantalla.
 - **Estados:** borrador, enviado, aceptado, rechazado y vencido. Solo se edita un borrador. Pasa solo a vencido (al consultar y con un cron diario). Duplicar (con fecha y número nuevos) y "duplicar y reemplazar" (el original queda rechazado).
 - **Snapshots** del cliente y del emisor en cada guardado del borrador.

@@ -1,22 +1,25 @@
 // Texto con formato limitado para las descripciones de presupuestos y la biblioteca: negrita,
-// cursiva, subrayado y una paleta corta de colores, para que el PDF salga siempre prolijo.
-// Entra HTML (el del editor del navegador) y sale un HTML canónico y seguro: <p>, <b>, <i>, <u> y
-// <span class="c-…">. Todo lo demás se descarta conservando el texto.
+// cursiva, subrayado y color de texto (cualquiera).
+// Entra HTML (el del editor del navegador) y sale un HTML canónico y seguro: <p>, <b>, <i>, <u>,
+// <span class="c-…"> para los colores de la paleta y <span style="color:#rrggbb"> para los demás.
+// Todo lo demás se descarta conservando el texto.
 
+/** Paleta con nombre: se guarda como clase (`c-rojo`), igual que antes de admitir cualquier color. */
 export const COLORES = {
-  rojo: '#A3352B',
-  azul: '#1E3A4C',
-  verde: '#23423A',
-  naranja: '#A84A2C',
+  rojo: '#a3352b',
+  azul: '#1e3a4c',
+  verde: '#23423a',
+  naranja: '#a84a2c',
 } as const;
-export type Color = keyof typeof COLORES;
+type NombreColor = keyof typeof COLORES;
 
 export interface Tramo {
   texto: string;
   negrita?: boolean;
   cursiva?: boolean;
   subrayado?: boolean;
-  color?: Color;
+  /** Hex en minúsculas (#rrggbb). Sin color: el texto normal. */
+  color?: string;
 }
 /** Un párrafo es una lista de tramos. */
 export type Parrafo = Tramo[];
@@ -33,33 +36,27 @@ function decodificar(t: string): string {
 }
 const escapar = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Color de la paleta más cercano a un color CSS (hex o rgb). Negro, gris o desconocido: sin color. */
-export function colorDePaleta(css: string | undefined): Color | undefined {
+// Colores que equivalen a "texto normal": negro y el grafito del texto (lo que pone "Normal" en el editor).
+const SIN_COLOR = new Set(['#000000', '#1b262d']);
+const POR_NOMBRE_CSS: Record<string, string> = { red: COLORES.rojo, blue: COLORES.azul, green: COLORES.verde, orange: COLORES.naranja };
+const hex2 = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+
+/**
+ * Color CSS (hex de 3 o 6 dígitos, rgb/rgba, un nombre de la paleta o red/blue/green/orange) a
+ * #rrggbb. Negro, el grafito del texto o algo que no se entiende: sin color (texto normal).
+ */
+export function normalizarColor(css: string | undefined): string | undefined {
   if (!css) return undefined;
   const v = css.trim().toLowerCase();
-  const porNombre: Record<string, Color> = { red: 'rojo', blue: 'azul', green: 'verde', orange: 'naranja' };
-  if (porNombre[v]) return porNombre[v];
-  if ((Object.keys(COLORES) as Color[]).includes(v as Color)) return v as Color;
-  let rgb: [number, number, number] | null = null;
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
-  if (hex) {
-    const h = hex[1].length === 3 ? hex[1].replace(/./g, (c) => c + c) : hex[1];
-    rgb = [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-  }
+  let hex: string | undefined = POR_NOMBRE_CSS[v] ?? (COLORES as Record<string, string>)[v];
+  const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(v);
+  if (h) hex = `#${h[1].length === 3 ? h[1].replace(/./g, (c) => c + c) : h[1]}`;
   const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(v);
-  if (m) rgb = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (!rgb) return undefined;
-  const [r, g, b] = rgb;
-  if (Math.max(r, g, b) - Math.min(r, g, b) < 40) return undefined; // grises y negro: texto normal
-  let mejor: Color | undefined;
-  let distancia = Infinity;
-  for (const [nombre, hexColor] of Object.entries(COLORES) as Array<[Color, string]>) {
-    const c = [1, 3, 5].map((i) => parseInt(hexColor.slice(i, i + 2), 16));
-    const d = (c[0] - r) ** 2 + (c[1] - g) ** 2 + (c[2] - b) ** 2;
-    if (d < distancia) [mejor, distancia] = [nombre, d];
-  }
-  return mejor;
+  if (m) hex = `#${hex2(Number(m[1]))}${hex2(Number(m[2]))}${hex2(Number(m[3]))}`;
+  return hex && !SIN_COLOR.has(hex) ? hex : undefined;
 }
+
+const nombreDeColor = (hex: string) => (Object.keys(COLORES) as NombreColor[]).find((n) => COLORES[n] === hex);
 
 const BLOQUES = new Set(['p', 'div', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'blockquote']);
 
@@ -130,8 +127,8 @@ export function parsearFormato(entrada: string): Parrafo[] {
     if (/text-decoration[^;]*underline/.test(css)) estilo.subrayado = true;
     const colorCss = /(?:^|;)\s*color\s*:\s*([^;]+)/.exec(css)?.[1];
     const colorAttr = /\bcolor\s*=\s*"([^"]*)"/i.exec(attrs)?.[1];
-    const clase = /class\s*=\s*"[^"]*\bc-(rojo|azul|verde|naranja)\b/i.exec(attrs)?.[1] as Color | undefined;
-    const color = clase ?? colorDePaleta(colorCss ?? colorAttr);
+    const clase = /class\s*=\s*"[^"]*\bc-(rojo|azul|verde|naranja)\b/i.exec(attrs)?.[1]?.toLowerCase() as NombreColor | undefined;
+    const color = clase ? COLORES[clase] : normalizarColor(colorCss ?? colorAttr);
     if (color) estilo.color = color;
     pila.push({ tag, estilo });
   }
@@ -151,7 +148,11 @@ export function serializarFormato(parrafos: Parrafo[]): string {
           if (t.subrayado) h = `<u>${h}</u>`;
           if (t.cursiva) h = `<i>${h}</i>`;
           if (t.negrita) h = `<b>${h}</b>`;
-          if (t.color) h = `<span class="c-${t.color}">${h}</span>`;
+          if (t.color) {
+            // `t.color` siempre sale de normalizarColor (#rrggbb): es seguro dentro del style.
+            const nombre = nombreDeColor(t.color);
+            h = nombre ? `<span class="c-${nombre}">${h}</span>` : `<span style="color:${t.color}">${h}</span>`;
+          }
           return h;
         })
         .join('');

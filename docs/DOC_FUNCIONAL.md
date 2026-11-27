@@ -331,7 +331,7 @@ Armar presupuestos con el diseño de Ale en minutos, eligiendo ítems de una bib
 
 - Estados: borrador, enviado, aceptado, rechazado y vencido. Solo un presupuesto aceptado puede crear una obra. Un presupuesto vencido se puede duplicar con fecha nueva.
 
-- El formato de las descripciones se limita a negrita, cursiva, subrayado y una paleta corta de colores, para que el PDF salga siempre prolijo.
+- El formato de las descripciones se limita a negrita, cursiva, subrayado y color de texto. Hay una paleta fija con los colores de la marca, se puede elegir cualquier otro color y los más usados aparecen al lado (se recuerdan en cada navegador).
 
 ## Casos borde y excepciones
 

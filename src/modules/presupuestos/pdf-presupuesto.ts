@@ -1,5 +1,5 @@
 import { DocumentoPdf, type EstiloDocumento, type ParrafoPdf } from '../../shared/pdf/documento-pdf';
-import { COLORES, parsearFormato } from './domain/formato';
+import { parsearFormato } from './domain/formato';
 import { metrosCuadrados, type Superficie } from './domain/presupuesto';
 
 /** Lo que el PDF necesita de un presupuesto (la vista del servicio). */
@@ -45,7 +45,7 @@ const cuit = (c: string) => (/^\d{11}$/.test(c) ? `${c.slice(0, 2)}-${c.slice(2,
 
 /** Texto con formato del presupuesto → párrafos para el PDF (colores de la paleta). */
 export function aParrafosPdf(html: string): ParrafoPdf[] {
-  return parsearFormato(html).map((p) => p.map((t) => ({ texto: t.texto, negrita: t.negrita, cursiva: t.cursiva, subrayado: t.subrayado, colorHex: t.color ? COLORES[t.color] : undefined })));
+  return parsearFormato(html).map((p) => p.map((t) => ({ texto: t.texto, negrita: t.negrita, cursiva: t.cursiva, subrayado: t.subrayado, colorHex: t.color })));
 }
 
 /** Observación del catálogo con su valor: "Plazo de obra: {valor}." + "120 días hábiles". */

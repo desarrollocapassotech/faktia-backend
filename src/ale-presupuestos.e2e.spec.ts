@@ -109,7 +109,7 @@ type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-ex
     ids.diegoP = p.id;
     expect(p).toMatchObject({ numero: 'P-0000001', fechaVencimiento: '2026-12-11', estado: 'BORRADOR', subtotal: '1850000.00', total: '1850000.00' });
     expect(p.items[0].descripcion).toBe('<p><b>Portón corredizo</b> de caño estructural</p>');
-    expect(p.items[1].descripcion).toContain('<span class="c-rojo">hierro macizo</span>');
+    expect(p.items[1].descripcion).toContain('<span style="color:#ff0000">hierro macizo</span>');
     expect(p.cliente).toMatchObject({ razonSocial: 'Diego Streck', documento: null });
     const pdf = await http('GET', `/presupuestos/${p.id}/pdf`);
     expect(pdf.status).toBe(200);
