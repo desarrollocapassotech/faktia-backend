@@ -11,6 +11,7 @@ import { ClientesModule } from './modules/clientes';
 import { ComprobantesModule } from './modules/comprobantes';
 import { CuentaCorrienteModule } from './modules/cuenta-corriente';
 import { ImportacionesModule } from './modules/importaciones';
+import { MaterialesModule } from './modules/materiales';
 import { PresupuestosModule } from './modules/presupuestos';
 import { ProduccionModule } from './modules/produccion';
 import { RecibosModule } from './modules/recibos';
@@ -39,6 +40,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     ProduccionModule,
     AvisosModule,
     PresupuestosModule,
+    MaterialesModule,
   ],
   controllers: [HealthController],
 })

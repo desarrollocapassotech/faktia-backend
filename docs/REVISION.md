@@ -59,6 +59,16 @@
 - Frontend: listado con filtros por estado, editor (cliente con alta rápida, biblioteca, editor de texto con formato, formas de cotizar, IVA, observaciones, notas, totales en vivo), acciones por estado, crear obra y la pantalla de biblioteca.
 - Tests: `formato.spec.ts`, `presupuesto.spec.ts` (Diego Streck, Municipalidad, LAR), e2e `src/ale-presupuestos.e2e.spec.ts` y aislamiento ampliado.
 
+### Fase 5: Materiales + Proveedores
+
+- **Módulo `materiales`** (`@Modulo('materiales')`): tablas `proveedores`, `materiales`, `listados_materiales`, `renglones_listado`. Rutas `/proveedores`, `/materiales`, `/listados-materiales`.
+- **Proveedores** genéricos (CUIT opcional validado, contacto, teléfono, email). Con materiales o listados no se borran: se desactivan.
+- **Catálogo:** nombre, unidad, categoría, costo y venta (cada uno en pesos o dólares, cargados a mano), proveedor habitual y fecha de la última actualización de precios. Usado en listados: se desactiva.
+- **Listados:** título, fecha, obra, presupuesto y proveedor opcionales, destino, observaciones y qué precios muestra el PDF (ninguno, costo o venta). Cada renglón copia nombre, unidad y precios: el catálogo nuevo no los cambia (salvo "Actualizar con el catálogo", a pedido). Totales por moneda. Duplicar.
+- **PDF** con el layout compartido: sin precios (para pedir cotización) o con precios y totales por moneda.
+- Frontend: Materiales (Listados, Catálogo, Proveedores) y el editor de listados; botón "Listado de materiales" en la obra.
+- Tests: `listado.spec.ts`, e2e `src/ale-materiales.e2e.spec.ts` y aislamiento ampliado.
+
 ## 2. Decisiones tomadas por mi cuenta
 
 | # | Tema | Decisión |
@@ -85,6 +95,9 @@
 | R21 | Borrar | Solo se borran borradores (puede quedar un salto en la numeración). |
 | R22 | Formato | Paleta de 4 colores (rojo, azul, verde, naranja) más el normal, tomados de los tokens. Negrita y cursiva juntas se dibujan en negrita (la fuente no tiene negrita cursiva). |
 | R23 | Biblioteca inicial | Los textos de `biblioteca-inicial.ts` los escribí a partir del doc: **hay que reemplazarlos con los presupuestos reales de Ale** antes de cargarlos en su empresa. |
+| R24 | Precio de venta (pregunta abierta) | Se carga a mano, sin margen automático. |
+| R25 | Unidades | Texto libre con sugerencias (barras, metros, chapas, unidades, litros, m³, kg, rollos). |
+| R26 | Nombre de material | Único por empresa (sin importar la unidad). |
 | R7 | Clientes sin documento | Se siguen guardando como `CONSUMIDOR_FINAL` con número "0" (lo que ya entendía ARCA). En pantalla el tipo se llama "Sin documento". |
 
 ## 3. BLOQUEANTES

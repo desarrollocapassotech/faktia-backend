@@ -148,6 +148,13 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ).id;
     a.itemBiblioteca = (await prisma.itemBiblioteca.create({ data: { tenantId: t, titulo: 'Columnas', descripcion: '<p>Columnas</p>' } })).id;
     a.observacion = (await prisma.observacionCatalogo.create({ data: { tenantId: t, texto: 'Materiales incluidos.' } })).id;
+    a.proveedor = (await prisma.proveedor.create({ data: { tenantId: t, nombre: 'Proveedor A' } })).id;
+    a.material = (await prisma.material.create({ data: { tenantId: t, nombre: 'Perfil A', unidad: 'barras', precioVenta: '100' } })).id;
+    a.listado = (
+      await prisma.listadoMateriales.create({
+        data: { tenantId: t, titulo: 'Listado A', fecha: new Date('2026-09-29'), renglones: { create: [{ orden: 1, cantidad: '1', nombre: 'Perfil A', unidad: 'barras', materialId: a.material }] } },
+      })
+    ).id;
     a.certificacion = (await prisma.certificacionHito.create({ data: { tenantId: t, hitoId: a.hito, fecha: new Date('2026-09-29'), descripcion: 'Avance', importe: '100' } })).id;
 
     // Empresa B: sesión de usuario y API key con todos los permisos.
@@ -176,6 +183,8 @@ const hayBase = Boolean(process.env.DATABASE_URL);
       await prisma.recibo.deleteMany({ where: { tenantId: id } });
       await prisma.importacion.deleteMany({ where: { tenantId: id } });
       await prisma.presupuesto.deleteMany({ where: { tenantId: id } });
+      await prisma.listadoMateriales.deleteMany({ where: { tenantId: id } });
+      await prisma.material.deleteMany({ where: { tenantId: id } });
       await prisma.proyecto.deleteMany({ where: { tenantId: id } });
       await prisma.tenant.delete({ where: { id } });
     }
@@ -246,6 +255,21 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     ['PUT', `/presupuestos/biblioteca/observaciones/${a.observacion}`, { texto: 'Hackeado' }],
     ['DELETE', `/presupuestos/biblioteca/observaciones/${a.observacion}`],
     ['POST', '/presupuestos', { clienteId: a.cliente, fecha: '2026-09-29', moneda: 'ARS', formaCotizar: 'GLOBAL', importeGlobal: '1', ivaModo: 'SIN_IVA', items: [{ descripcion: 'x' }] }],
+    ['PATCH', `/proveedores/${a.proveedor}`, { nombre: 'Hackeado' }],
+    ['DELETE', `/proveedores/${a.proveedor}`],
+    ['PATCH', `/materiales/${a.material}`, { nombre: 'Hackeado', unidad: 'x' }],
+    ['DELETE', `/materiales/${a.material}`],
+    ['GET', `/listados-materiales/${a.listado}`],
+    ['PUT', `/listados-materiales/${a.listado}`, { titulo: 'x', fecha: '2026-09-29', precios: 'NINGUNO', renglones: [] }],
+    ['DELETE', `/listados-materiales/${a.listado}`],
+    ['POST', `/listados-materiales/${a.listado}/actualizar-precios`],
+    ['POST', `/listados-materiales/${a.listado}/duplicar`],
+    ['GET', `/listados-materiales/${a.listado}/pdf`],
+    // Un listado de B no puede usar materiales, proveedores ni obras de A.
+    ['POST', '/listados-materiales', { titulo: 'x', fecha: '2026-09-29', precios: 'VENTA', renglones: [{ cantidad: '1', materialId: a.material }] }],
+    ['POST', '/listados-materiales', { titulo: 'x', fecha: '2026-09-29', precios: 'NINGUNO', proveedorId: a.proveedor, renglones: [] }],
+    ['POST', '/listados-materiales', { titulo: 'x', fecha: '2026-09-29', precios: 'NINGUNO', proyectoId: a.proyecto, renglones: [] }],
+    ['POST', '/materiales', { nombre: 'x', unidad: 'x', proveedorId: a.proveedor }],
     // Un proyecto de B no puede ser de un cliente de A; ni un comprobante o movimiento de B, de un proyecto de A.
     ['POST', '/proyectos', { clienteId: a.cliente, nombre: 'x' }],
     ['POST', '/cuenta-corriente/movimientos', { clienteId: a.cliente, proyectoId: a.proyecto, tipo: 'HABER', concepto: 'x', fecha: '2026-09-29', moneda: 'ARS', importe: '1' }],
@@ -297,7 +321,7 @@ const hayBase = Boolean(process.env.DATABASE_URL);
   });
 
   it('los listados de B no muestran nada de A', async () => {
-    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen', '/proyectos', '/avisos/vista-previa', '/avisos/historial', '/presupuestos', '/presupuestos/biblioteca/items', '/presupuestos/biblioteca/observaciones'];
+    const rutas = ['/clientes', '/comprobantes', '/comprobantes?incluirRecibos=true', '/recibos/siguiente-numero?tipo=COBRO', '/importaciones', '/importaciones/items', '/configuracion/tarifas', '/configuracion/plantillas-mapeo', '/integraciones', '/configuracion/webhooks', '/configuracion/puntos-venta', '/cuenta-corriente/cuentas', '/cuenta-corriente/resumen', '/proyectos', '/avisos/vista-previa', '/avisos/historial', '/presupuestos', '/presupuestos/biblioteca/items', '/presupuestos/biblioteca/observaciones', '/proveedores', '/materiales', '/listados-materiales'];
     const idsA = Object.values(a);
     const filtrados: string[] = [];
     for (const ruta of rutas) {
@@ -384,6 +408,9 @@ const hayBase = Boolean(process.env.DATABASE_URL);
     expect(proyecto).toMatchObject({ nombre: 'Obra A', estado: 'EN_CURSO' });
     expect(await prisma.presupuesto.findUniqueOrThrow({ where: { id: a.presupuesto } })).toMatchObject({ estado: 'ACEPTADO', proyectoId: null });
     expect((await prisma.itemBiblioteca.findUniqueOrThrow({ where: { id: a.itemBiblioteca } })).titulo).toBe('Columnas');
+    expect((await prisma.listadoMateriales.findUniqueOrThrow({ where: { id: a.listado } })).titulo).toBe('Listado A');
+    expect((await prisma.material.findUniqueOrThrow({ where: { id: a.material } })).nombre).toBe('Perfil A');
+    expect((await prisma.proveedor.findUniqueOrThrow({ where: { id: a.proveedor } })).nombre).toBe('Proveedor A');
     expect((await prisma.observacionCatalogo.findUniqueOrThrow({ where: { id: a.observacion } })).texto).toBe('Materiales incluidos.');
     expect(certificacion.importe.toString()).toBe('100');
     expect((await prisma.recibo.findUniqueOrThrow({ where: { id: a.recibo } })).anuladoEn).toBeNull();

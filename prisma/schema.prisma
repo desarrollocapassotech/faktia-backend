@@ -176,6 +176,10 @@ model Tenant {
   presupuestoItems      PresupuestoItem[]
   itemsBiblioteca       ItemBiblioteca[]
   observacionesCatalogo ObservacionCatalogo[]
+  proveedores           Proveedor[]
+  materiales            Material[]
+  listadosMateriales    ListadoMateriales[]
+  renglonesListado      RenglonListado[]
 
   @@map("tenants")
 }
@@ -802,6 +806,7 @@ model Proyecto {
   comprobantes  Comprobante[]
   recibos       Recibo[]
   presupuestos  Presupuesto[]
+  listados      ListadoMateriales[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, clienteId, nombre])
@@ -964,7 +969,8 @@ model Presupuesto {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  items PresupuestoItem[]
+  items    PresupuestoItem[]
+  listados ListadoMateriales[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, numero])
@@ -1022,4 +1028,109 @@ model ObservacionCatalogo {
   @@unique([tenantId, id])
   @@unique([tenantId, texto])
   @@map("observaciones_catalogo")
+}
+
+// ─────────────────────────────── Materiales ───────────────────────────────
+
+/// Proveedor del tenant (genérico, sirve para cualquier rubro). Con listados o materiales no se borra: se desactiva.
+model Proveedor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nombre    String // nombre o razón social
+  cuit      String?
+  contacto  String?
+  telefono  String?
+  email     String?
+  notas     String?
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materiales Material[]
+  listados   ListadoMateriales[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, nombre])
+  @@map("proveedores")
+}
+
+/// Material del catálogo: precio de costo y de venta, cada uno en pesos o dólares. Usado en listados: se desactiva.
+model Material {
+  id                    String     @id @default(cuid())
+  tenantId              String
+  tenant                Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nombre                String
+  unidad                String // barras, metros, chapas, unidades, litros, m³, kg, rollos…
+  categoria             String?
+  precioCosto           Decimal?   @db.Decimal(15, 2)
+  monedaCosto           Moneda     @default(ARS)
+  precioVenta           Decimal?   @db.Decimal(15, 2)
+  monedaVenta           Moneda     @default(ARS)
+  proveedorId           String? // proveedor habitual
+  proveedor             Proveedor? @relation(fields: [tenantId, proveedorId], references: [tenantId, id], onDelete: Restrict)
+  preciosActualizadosEn DateTime?
+  activo                Boolean    @default(true)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  renglones RenglonListado[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, nombre])
+  @@map("materiales")
+}
+
+enum PreciosListado {
+  NINGUNO // para pedir cotización al proveedor
+  COSTO
+  VENTA // para el cliente
+}
+
+/// Listado de materiales (pedido o cálculo) de una obra, suelto o de un presupuesto. Guarda copia de nombre, unidad y precios.
+model ListadoMateriales {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  titulo        String
+  fecha         DateTime       @db.Date
+  proyectoId    String?
+  proyecto      Proyecto?      @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  presupuestoId String?
+  presupuesto   Presupuesto?   @relation(fields: [tenantId, presupuestoId], references: [tenantId, id], onDelete: Restrict)
+  proveedorId   String?
+  proveedor     Proveedor?     @relation(fields: [tenantId, proveedorId], references: [tenantId, id], onDelete: Restrict)
+  destino       String? // destino o dirección de entrega
+  observaciones String?
+  precios       PreciosListado @default(NINGUNO)
+  creadoPorId   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  renglones RenglonListado[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, proyectoId])
+  @@map("listados_materiales")
+}
+
+model RenglonListado {
+  id          String            @id @default(cuid())
+  tenantId    String
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  listadoId   String
+  listado     ListadoMateriales @relation(fields: [tenantId, listadoId], references: [tenantId, id], onDelete: Cascade)
+  orden       Int
+  cantidad    Decimal           @db.Decimal(15, 3)
+  materialId  String? // null: texto libre
+  material    Material?         @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: Restrict)
+  nombre      String
+  unidad      String
+  precioCosto Decimal?          @db.Decimal(15, 2)
+  monedaCosto Moneda?
+  precioVenta Decimal?          @db.Decimal(15, 2)
+  monedaVenta Moneda?
+
+  @@index([tenantId, listadoId])
+  @@map("renglones_listado")
 }

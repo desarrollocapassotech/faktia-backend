@@ -210,12 +210,12 @@ export class DocumentoPdf {
     this.y += 8;
   }
 
-  /** Renglones de totales alineados a la derecha; el último destacado. */
-  totales(filas: Array<[string, string]>) {
+  /** Renglones de totales alineados a la derecha; el último destacado (o todos, si son totales por moneda). */
+  totales(filas: Array<[string, string]>, todosDestacados = false) {
     const d = this.doc;
     this.espacio(filas.length * 18 + 8);
     filas.forEach(([k, v], i) => {
-      const ultimo = i === filas.length - 1;
+      const ultimo = todosDestacados || i === filas.length - 1;
       d.font(ultimo ? FUENTE.seminegrita : FUENTE.normal).fontSize(ultimo ? 11 : 9).fillColor(ultimo ? this.primario : COLORES_PDF.grafito);
       d.text(k, M, this.y, { width: CW - 130, align: 'right' });
       d.text(v, M + CW - 125, this.y, { width: 125, align: 'right', ...NUM });

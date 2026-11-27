@@ -270,7 +270,7 @@ Implementación de `docs/DOC_FUNCIONAL.md` para el primer cliente (Ale Herrería
 | 2. Proyectos + cuenta corriente + recibos | ✅ Hecha (migración `20261126130000_ale_proyectos`) |
 | 3. Avisos por email | ✅ Hecha (migración `20261126140000_ale_avisos`) |
 | 4. Presupuestos | ✅ Hecha (migración `20261126150000_ale_presupuestos`) |
-| 5. Materiales + proveedores | ⏳ Pendiente |
+| 5. Materiales + proveedores | ✅ Hecha (migración `20261127120000_ale_materiales`) |
 | 6. Documentación | ⏳ Pendiente |
 
 Para retomar: Postgres local (`initdb` + `pg_ctl`, usuario `faktia`), `.env` apuntando a él, `npx prisma migrate deploy` y `npx jest --ci`.
