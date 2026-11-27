@@ -1451,6 +1451,12 @@
             "nullable": true,
             "maxLength": 1000
           },
+          "proyectoId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA.",
+            "maxLength": 40
+          },
           "lineas": {
             "minItems": 1,
             "maxItems": 200,
@@ -1531,6 +1537,12 @@
             "type": "string",
             "nullable": true,
             "maxLength": 1000
+          },
+          "proyectoId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA.",
+            "maxLength": 40
           },
           "motivo": {
             "type": "string",

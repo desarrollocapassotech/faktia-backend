@@ -163,14 +163,14 @@ export class AuthService {
 
     const usuario = await this.prisma.usuario.findUnique({
       where: { tenantId_id: { tenantId: payload.tid, id: payload.sub } },
-      select: { id: true, activo: true, tokenVersion: true, tenant: { select: { activo: true } } },
+      select: { id: true, activo: true, tokenVersion: true, tenant: { select: { activo: true, modulosHabilitados: true } } },
     });
 
     if (!usuario || !usuario.activo || !usuario.tenant.activo || usuario.tokenVersion !== payload.tv) {
       throw new UnauthorizedException('La sesión expiró o no es válida.');
     }
 
-    return { tenantId: payload.tid, tipo: 'usuario', usuarioId: usuario.id, scopes: [] };
+    return { tenantId: payload.tid, tipo: 'usuario', usuarioId: usuario.id, scopes: [], modulos: usuario.tenant.modulosHabilitados };
   }
 
   /** Cambia el nombre visible del usuario de la sesión. */
@@ -232,6 +232,9 @@ export class AuthService {
             cuit: true,
             condicionIva: true,
             domicilioFiscal: true,
+            modulosHabilitados: true,
+            etiquetaProyecto: true,
+            etiquetaProyectoPlural: true,
           },
         },
       },
@@ -247,6 +250,10 @@ export class AuthService {
         ambienteArca: t.ambienteArca,
         // Mismo criterio que TenantsService.obtenerEmisor: sin esto no se puede facturar.
         datosFiscalesCompletos: Boolean(t.razonSocial?.trim() && t.cuit && t.condicionIva && t.domicilioFiscal?.trim()),
+        // El menú muestra solo estos módulos; la entidad Proyecto se nombra con la etiqueta de la empresa.
+        modulos: t.modulosHabilitados,
+        etiquetaProyecto: t.etiquetaProyecto,
+        etiquetaProyectoPlural: t.etiquetaProyectoPlural,
       },
     };
   }

@@ -11,7 +11,7 @@ import { PrismaService } from '../../shared/prisma/prisma.service';
 import { esCuitValido, normalizarCuit } from '../../shared/util/cuit';
 import { ARCA_GATEWAY, ArcaError, PadronService, type ArcaGateway } from '../arca';
 import { CredencialesArcaProvider } from '../tenants';
-import { normalizarDocumento } from './documento';
+import { claveDocumento, normalizarDocumento } from './documento';
 import { ActualizarClienteDto, CrearClienteDto, ListarClientesQuery } from './dto/clientes.dto';
 
 @Injectable()
@@ -68,6 +68,7 @@ export class ClientesService {
           razonSocial: dto.razonSocial,
           tipoDocumento: dto.tipoDocumento,
           numeroDocumento: doc.numero,
+          claveDocumento: claveDocumento(dto.tipoDocumento, doc.numero),
           condicionIva: dto.condicionIva,
           domicilio: dto.domicilio || null,
           email: dto.email || null,
@@ -95,6 +96,7 @@ export class ClientesService {
           razonSocial: dto.razonSocial,
           tipoDocumento: dto.tipoDocumento,
           numeroDocumento: numero,
+          claveDocumento: numero === undefined ? undefined : claveDocumento(tipo, numero),
           condicionIva: dto.condicionIva,
           domicilio: dto.domicilio === undefined ? undefined : dto.domicilio || null,
           email: dto.email === undefined ? undefined : dto.email || null,

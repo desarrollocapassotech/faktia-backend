@@ -62,6 +62,20 @@ export class CrearMovimientoDto {
   @MaxLength(500)
   observaciones?: string;
 
+  /**
+   * Proyecto (obra): un adicional (DEBE) o un pago sin recibo (HABER), por ejemplo las entregas viejas
+   * cargadas con su fecha original. El pago se imputa solo a las deudas del proyecto.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  proyectoId?: string;
+
+  /** Pago en otra moneda que el proyecto: pesos por dólar. Sin esto, el fijo del proyecto o la cotización de ARCA. */
+  @IsOptional()
+  @Matches(/^\d{1,9}(\.\d{1,6})?$/, { message: 'tipoCambio debe ser un número con punto decimal.' })
+  tipoCambio?: string;
+
   /** Solo HABER: DEBE de la misma cuenta y moneda a los que se aplica, del más viejo al más nuevo. */
   @IsOptional()
   @IsArray()

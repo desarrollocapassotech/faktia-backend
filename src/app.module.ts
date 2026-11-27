@@ -5,15 +5,19 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { HealthController } from './health.controller';
 import { ApiPublicaModule } from './modules/api-publica';
+import { AvisosModule } from './modules/avisos';
 import { AuthModule } from './modules/auth';
 import { ClientesModule } from './modules/clientes';
 import { ComprobantesModule } from './modules/comprobantes';
 import { CuentaCorrienteModule } from './modules/cuenta-corriente';
 import { ImportacionesModule } from './modules/importaciones';
+import { MaterialesModule } from './modules/materiales';
+import { PresupuestosModule } from './modules/presupuestos';
 import { ProduccionModule } from './modules/produccion';
 import { RecibosModule } from './modules/recibos';
 import { TenantsModule } from './modules/tenants';
 import { validateEnv } from './shared/config/env.validation';
+import { EmailModule } from './shared/email/email';
 import { PrismaModule } from './shared/prisma/prisma.module';
 
 @Module({
@@ -24,6 +28,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
     PrismaModule,
+    EmailModule,
     AuthModule,
     TenantsModule,
     ClientesModule,
@@ -33,6 +38,9 @@ import { PrismaModule } from './shared/prisma/prisma.module';
     CuentaCorrienteModule,
     ApiPublicaModule,
     ProduccionModule,
+    AvisosModule,
+    PresupuestosModule,
+    MaterialesModule,
   ],
   controllers: [HealthController],
 })

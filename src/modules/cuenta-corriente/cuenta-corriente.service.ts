@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Moneda, type TipoComprobante } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthContext } from '../auth';
@@ -8,10 +8,12 @@ import { RecibosService, type ReciboParaCuentaCorriente } from '../recibos';
 import { TenantsService } from '../tenants';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { estadoDe, ordenMoneda, pendienteDe, repartirHaber, saldosAcumulados, saldosPorMoneda, sumarDias, importeAImputar } from './domain/cuenta';
+import { convertir, elegirTipoCambio, impactoFactura, pendientePorCertificacion, pendientesDe, repartirEnProyecto, type DebeProyecto } from './domain/proyecto';
+import { PROVEEDOR_COTIZACION, type ProveedorCotizacion } from './cotizacion';
 import type { ActualizarMovimientoDto, CrearImputacionDto, CrearMovimientoDto } from './dto/cuenta-corriente.dto';
 
 /** Imputar o sincronizar encadena varias escrituras: el default de Prisma (5 s) puede no alcanzar. */
-const TX = { timeout: 20_000, maxWait: 10_000 } as const;
+export const TX = { timeout: 20_000, maxWait: 10_000 } as const;
 
 const NOTAS_CREDITO: TipoComprobante[] = ['NOTA_CREDITO_A', 'NOTA_CREDITO_B', 'NOTA_CREDITO_C'];
 
@@ -27,21 +29,25 @@ const TIPO_TEXTO: Record<TipoComprobante, string> = {
   NOTA_CREDITO_C: 'Nota de crédito C',
 };
 
-const deYmd = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
-const aYmd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
-const dinero = (d: Decimal.Value) => new Decimal(d).toFixed(2);
+export const deYmd = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
+export const aYmd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+export const dinero = (d: Decimal.Value) => new Decimal(d).toFixed(2);
 const numeroComprobante = (pv: number, numero: number) => `${String(pv).padStart(5, '0')}-${String(numero).padStart(8, '0')}`;
 
 /** Hoy en Argentina, como fecha sin hora (igual que las de la base). */
-function hoyAr(): Date {
+export function hoyAr(): Date {
   return deYmd(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()));
 }
 
 /** Un DEBE con lo que le falta cobrar (para el listado de cuentas y el resumen). */
-interface DebeAbierto {
+export interface DebeAbierto {
   id: string;
   clienteId: string;
   razonSocial: string;
+  proyectoId: string | null;
+  proyecto: string | null;
+  /** Certificación de un hito (lo que vence es la certificación, no el hito entero). */
+  certificacionId: string | null;
   concepto: string;
   numero: string | null;
   moneda: Moneda;
@@ -67,6 +73,7 @@ export class CuentaCorrienteService {
     private readonly comprobantes: ComprobantesService,
     private readonly recibos: RecibosService,
     private readonly tenants: TenantsService,
+    @Inject(PROVEEDOR_COTIZACION) private readonly cotizacion: ProveedorCotizacion,
   ) {}
 
   // ───────────────────────────── Sincronización ─────────────────────────────
@@ -84,22 +91,27 @@ export class CuentaCorrienteService {
    */
   async sincronizar(tenantId: string): Promise<void> {
     const { ambienteArca } = await this.tenants.obtenerEmisor(tenantId);
-    const [idsComprobantes, idsRecibos, registrados] = await Promise.all([
+    const [idsComprobantes, idsRecibos, idsAnulados, registrados] = await Promise.all([
       this.comprobantes.idsConCae(tenantId, ambienteArca),
       this.recibos.idsCobrosConCliente(tenantId),
+      this.recibos.idsAnulados(tenantId),
       this.prisma.movimientoCuentaCorriente.findMany({
         where: { tenantId, origen: { in: ['COMPROBANTE', 'RECIBO'] } },
-        select: { id: true, comprobanteId: true, reciboId: true },
+        select: { id: true, comprobanteId: true, reciboId: true, _count: { select: { anuladoPor: true } } },
       }),
     ]);
     const conCae = new Set(idsComprobantes);
+    const anulados = new Set(idsAnulados);
     const comprobantesRegistrados = new Set(registrados.map((r) => r.comprobanteId).filter(Boolean));
     const recibosRegistrados = new Set(registrados.map((r) => r.reciboId).filter(Boolean));
     const faltanComprobantes = idsComprobantes.filter((id) => !comprobantesRegistrados.has(id));
     const faltanRecibos = idsRecibos.filter((id) => !recibosRegistrados.has(id));
     const deOtroAmbiente = registrados.filter((r) => r.comprobanteId && !conCae.has(r.comprobanteId)).map((r) => r.id);
+    // Cobros de recibos anulados que todavía no tienen su movimiento de anulación (o recién se registran).
+    const hayAnulacionesPendientes =
+      registrados.some((r) => r.reciboId && anulados.has(r.reciboId) && r._count.anuladoPor === 0) || faltanRecibos.some((id) => anulados.has(id));
     // Lo de siempre es que no falte nada: no se abre la transacción.
-    if (faltanComprobantes.length + faltanRecibos.length + deOtroAmbiente.length === 0) return;
+    if (faltanComprobantes.length + faltanRecibos.length + deOtroAmbiente.length === 0 && !hayAnulacionesPendientes) return;
 
     const [comprobantes, recibos] = await Promise.all([
       this.comprobantes.paraCuentaCorriente(tenantId, faltanComprobantes),
@@ -110,12 +122,35 @@ export class CuentaCorrienteService {
       if (deOtroAmbiente.length) await tx.movimientoCuentaCorriente.deleteMany({ where: { tenantId, id: { in: deOtroAmbiente } } });
       await this.registrarComprobantes(tx, tenantId, comprobantes);
       await this.registrarRecibos(tx, tenantId, recibos);
+      await this.registrarAnulaciones(tx, tenantId, anulados);
     }, TX);
+  }
+
+  /** Proyecto de un comprobante, solo si es del mismo cliente y moneda (si no, la factura cuenta como sin proyecto). */
+  private async proyectoDeComprobante(tx: Prisma.TransactionClient, tenantId: string, c: ComprobanteParaCuentaCorriente) {
+    if (!c.proyectoId) return null;
+    const p = await tx.proyecto.findUnique({
+      where: { tenantId_id: { tenantId, id: c.proyectoId } },
+      select: { id: true, clienteId: true, moneda: true, montoAcordado: true, modoIva: true, nombre: true },
+    });
+    return p && p.clienteId === c.clienteId && p.moneda === c.moneda ? p : null;
+  }
+
+  /** Importe y observación del movimiento de un comprobante según su proyecto (ModoIvaProyecto). */
+  async impactoDeComprobante(tx: Prisma.TransactionClient, tenantId: string, c: ComprobanteParaCuentaCorriente) {
+    const proyecto = await this.proyectoDeComprobante(tx, tenantId, c);
+    const r = impactoFactura(proyecto ? { montoAcordado: proyecto.montoAcordado?.toString() ?? null, modoIva: proyecto.modoIva } : null, {
+      total: c.importeTotal.toString(),
+      iva: c.importeIva.toString(),
+      tributos: c.importeTributos.toString(),
+    });
+    return { proyectoId: proyecto?.id ?? null, importe: r.importe, observaciones: r.detalle };
   }
 
   private async registrarComprobantes(tx: Prisma.TransactionClient, tenantId: string, comprobantes: ComprobanteParaCuentaCorriente[]) {
     // Primero facturas y notas de débito: las notas de crédito se imputan a ellas.
     const ordenados = [...comprobantes.filter((c) => !NOTAS_CREDITO.includes(c.tipo)), ...comprobantes.filter((c) => NOTAS_CREDITO.includes(c.tipo))];
+    const proyectos = new Set<string>();
     for (const c of ordenados) {
       // Otro pedido pudo registrarlo mientras se esperaba el lock.
       const ya = await tx.movimientoCuentaCorriente.findUnique({ where: { tenantId_comprobanteId: { tenantId, comprobanteId: c.id } }, select: { id: true } });
@@ -124,6 +159,7 @@ export class CuentaCorrienteService {
       const vencimiento = esNc
         ? null
         : (c.fechaVtoPago ?? (c.cliente.diasVencimiento != null ? sumarDias(c.fechaEmision, c.cliente.diasVencimiento) : null));
+      const impacto = await this.impactoDeComprobante(tx, tenantId, c);
       const mov = await tx.movimientoCuentaCorriente.create({
         data: {
           tenantId,
@@ -131,26 +167,36 @@ export class CuentaCorrienteService {
           tipo: esNc ? 'HABER' : 'DEBE',
           origen: 'COMPROBANTE',
           comprobanteId: c.id,
+          proyectoId: impacto.proyectoId,
           concepto: TIPO_TEXTO[c.tipo],
           numero: numeroComprobante(c.puntoVenta.numero, c.numero!),
           moneda: c.moneda,
-          importe: c.importeTotal,
+          importe: impacto.importe.toFixed(2),
           fecha: c.fechaEmision,
           fechaVencimiento: vencimiento,
+          observaciones: impacto.observaciones,
         },
       });
-      if (!esNc || !c.asociadoId) continue;
-      // Nota de crédito: se imputa a su factura por lo que le falte cobrar; lo que sobra queda a favor del cliente.
-      const factura = await tx.movimientoCuentaCorriente.findUnique({
-        where: { tenantId_comprobanteId: { tenantId, comprobanteId: c.asociadoId } },
+      if (impacto.proyectoId) proyectos.add(impacto.proyectoId);
+      if (esNc && c.asociadoId) await this.imputarNotaASuFactura(tx, tenantId, mov, c.asociadoId);
+    }
+    for (const id of proyectos) await this.imputarProyecto(tx, tenantId, id);
+  }
+
+  /** Nota de crédito: se imputa a su factura por lo que le falte cobrar; lo que sobra queda a favor del cliente. */
+  private async imputarNotaASuFactura(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    nc: { id: string; moneda: Moneda; clienteId: string; importe: Prisma.Decimal | Decimal | string },
+    facturaId: string,
+  ) {
+    const factura = await tx.movimientoCuentaCorriente.findUnique({ where: { tenantId_comprobanteId: { tenantId, comprobanteId: facturaId } } });
+    if (!factura || factura.moneda !== nc.moneda || factura.clienteId !== nc.clienteId) return;
+    const importe = importeAImputar(await this.pendienteDebe(tx, tenantId, factura.id), await this.disponibleHaber(tx, tenantId, nc.id));
+    if (importe.gt(0)) {
+      await tx.imputacionCuentaCorriente.create({
+        data: { tenantId, haberId: nc.id, debeId: factura.id, importe: importe.toFixed(2), automatica: true },
       });
-      if (!factura || factura.moneda !== mov.moneda || factura.clienteId !== mov.clienteId) continue;
-      const importe = importeAImputar(await this.pendienteDebe(tx, tenantId, factura.id), mov.importe.toString());
-      if (importe.gt(0)) {
-        await tx.imputacionCuentaCorriente.create({
-          data: { tenantId, haberId: mov.id, debeId: factura.id, importe: importe.toFixed(2), automatica: true },
-        });
-      }
     }
   }
 
@@ -159,6 +205,8 @@ export class CuentaCorrienteService {
       if (!r.clienteId) continue;
       const ya = await tx.movimientoCuentaCorriente.findUnique({ where: { tenantId_reciboId: { tenantId, reciboId: r.id } }, select: { id: true } });
       if (ya) continue;
+      // Pago en otra moneda que el proyecto: la cuenta lo registra en la moneda de la deuda y guarda lo que entró.
+      const convertido = r.monedaImputacion && r.importeImputacion && r.monedaImputacion !== r.moneda;
       const mov = await tx.movimientoCuentaCorriente.create({
         data: {
           tenantId,
@@ -166,15 +214,51 @@ export class CuentaCorrienteService {
           tipo: 'HABER',
           origen: 'RECIBO',
           reciboId: r.id,
+          proyectoId: r.proyectoId,
           concepto: 'Recibo de cobro',
           numero: r.numero,
-          moneda: r.moneda,
-          importe: r.total,
+          moneda: convertido ? r.monedaImputacion! : r.moneda,
+          importe: convertido ? r.importeImputacion! : r.total,
+          monedaOrigen: convertido ? r.moneda : null,
+          importeOrigen: convertido ? r.total : null,
+          tipoCambio: convertido ? r.tipoCambio : null,
           fecha: r.fecha,
           observaciones: r.medioPago,
         },
       });
-      await this.imputarReciboASusFacturas(tx, tenantId, mov, r.comprobantesAplicados);
+      if (r.proyectoId) await this.imputarProyecto(tx, tenantId, r.proyectoId);
+      else await this.imputarReciboASusFacturas(tx, tenantId, mov, r.comprobantesAplicados);
+    }
+  }
+
+  /**
+   * Recibo anulado: su cobro deja de cancelar deudas (se deshacen sus imputaciones) y se compensa con
+   * un DEBE de anulación imputado a él. El saldo vuelve a quedar como antes del cobro y queda el rastro.
+   */
+  private async registrarAnulaciones(tx: Prisma.TransactionClient, tenantId: string, anulados: Set<string>) {
+    if (anulados.size === 0) return;
+    const pendientes = await tx.movimientoCuentaCorriente.findMany({
+      where: { tenantId, origen: 'RECIBO', reciboId: { in: [...anulados] }, anuladoPor: { none: {} } },
+    });
+    for (const h of pendientes) {
+      await tx.imputacionCuentaCorriente.deleteMany({ where: { tenantId, haberId: h.id } });
+      const debe = await tx.movimientoCuentaCorriente.create({
+        data: {
+          tenantId,
+          clienteId: h.clienteId,
+          tipo: 'DEBE',
+          origen: 'ANULACION',
+          anulaId: h.id,
+          proyectoId: h.proyectoId,
+          concepto: 'Anulación de recibo',
+          numero: h.numero,
+          moneda: h.moneda,
+          importe: h.importe,
+          fecha: hoyAr(),
+        },
+      });
+      await tx.imputacionCuentaCorriente.create({ data: { tenantId, haberId: h.id, debeId: debe.id, importe: h.importe, automatica: true } });
+      if (h.proyectoId) await this.imputarProyecto(tx, tenantId, h.proyectoId);
     }
   }
 
@@ -193,8 +277,9 @@ export class CuentaCorrienteService {
       .map((a) => a as { comprobanteId?: unknown; importe?: unknown })
       .filter((a): a is { comprobanteId: string; importe: string } => typeof a?.comprobanteId === 'string' && typeof a.importe === 'string');
     if (pedidos.length === 0) return;
+    // Un cobro sin proyecto solo cancela deudas sin proyecto.
     const debes = await tx.movimientoCuentaCorriente.findMany({
-      where: { tenantId, tipo: 'DEBE', clienteId: haber.clienteId, moneda: haber.moneda, comprobanteId: { in: pedidos.map((p) => p.comprobanteId) } },
+      where: { tenantId, tipo: 'DEBE', clienteId: haber.clienteId, moneda: haber.moneda, proyectoId: null, comprobanteId: { in: pedidos.map((p) => p.comprobanteId) } },
       select: { id: true, comprobanteId: true },
     });
     const porComprobante = new Map(debes.map((d) => [d.comprobanteId, d.id]));
@@ -211,17 +296,135 @@ export class CuentaCorrienteService {
     }
   }
 
+  // ───────────────────────────── Proyectos ─────────────────────────────
+
+  /**
+   * Las deudas de un proyecto con lo imputado y, en los hitos por certificación, lo certificado.
+   * Lo usan la imputación automática y los saldos.
+   */
+  async debesDeProyecto(tx: Prisma.TransactionClient, tenantId: string, proyectoId: string): Promise<Array<DebeProyecto & { origen: string; concepto: string }>> {
+    const filas = await tx.movimientoCuentaCorriente.findMany({
+      where: { tenantId, proyectoId, tipo: 'DEBE' },
+      select: {
+        id: true,
+        origen: true,
+        concepto: true,
+        importe: true,
+        orden: true,
+        porCertificacion: true,
+        fecha: true,
+        fechaVencimiento: true,
+        createdAt: true,
+        imputacionesComoDebe: { select: { importe: true } },
+        certificaciones: { select: { importe: true } },
+      },
+    });
+    return filas.map((f) => ({
+      id: f.id,
+      origen: f.origen,
+      concepto: f.concepto,
+      importe: f.importe.toString(),
+      imputado: f.imputacionesComoDebe.reduce((acc, i) => acc.plus(i.importe.toString()), new Decimal(0)),
+      porCertificacion: f.porCertificacion,
+      certificado: f.certificaciones.reduce((acc, c) => acc.plus(c.importe.toString()), new Decimal(0)),
+      orden: f.orden,
+      fecha: f.fecha,
+      fechaVencimiento: f.fechaVencimiento,
+      createdAt: f.createdAt,
+    }));
+  }
+
+  /**
+   * Aplica lo que quede sin imputar de los pagos del proyecto (del más viejo al más nuevo) a sus deudas
+   * exigibles: hitos por orden, después el resto por vencimiento (domain/proyecto.ts). Nunca toca lo
+   * ya imputado. Se llama después de cada cambio del proyecto: un hito o una certificación nuevos
+   * absorben lo que el cliente tenía a cuenta.
+   */
+  async imputarProyecto(tx: Prisma.TransactionClient, tenantId: string, proyectoId: string): Promise<void> {
+    const habers = await tx.movimientoCuentaCorriente.findMany({
+      where: { tenantId, proyectoId, tipo: 'HABER' },
+      select: { id: true, importe: true, imputacionesComoHaber: { select: { importe: true } } },
+      orderBy: [{ fecha: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const conDisponible = habers
+      .map((h) => ({ id: h.id, disponible: pendienteDe(h.importe.toString(), h.imputacionesComoHaber.map((i) => i.importe.toString())) }))
+      .filter((h) => h.disponible.gt(0));
+    if (conDisponible.length === 0) return;
+    const debes = await this.debesDeProyecto(tx, tenantId, proyectoId);
+    for (const h of conDisponible) {
+      for (const r of repartirEnProyecto(h.disponible, debes)) {
+        const existente = await tx.imputacionCuentaCorriente.findUnique({ where: { tenantId_haberId_debeId: { tenantId, haberId: h.id, debeId: r.id } } });
+        if (existente) {
+          await tx.imputacionCuentaCorriente.update({ where: { id: existente.id }, data: { importe: new Decimal(existente.importe.toString()).plus(r.importe).toFixed(2) } });
+        } else {
+          await tx.imputacionCuentaCorriente.create({ data: { tenantId, haberId: h.id, debeId: r.id, importe: r.importe.toFixed(2), automatica: true } });
+        }
+        const d = debes.find((x) => x.id === r.id)!;
+        d.imputado = new Decimal(d.imputado).plus(r.importe);
+      }
+    }
+  }
+
+  /**
+   * Recalcula los movimientos de las facturas y notas de un proyecto (al cambiar el modo de IVA o el
+   * monto acordado): deshace todas sus imputaciones, corrige los importes y vuelve a imputar.
+   */
+  async recalcularComprobantesDeProyecto(tx: Prisma.TransactionClient, tenantId: string, proyectoId: string): Promise<void> {
+    const movs = await tx.movimientoCuentaCorriente.findMany({
+      where: { tenantId, proyectoId, origen: 'COMPROBANTE' },
+      select: { id: true, comprobanteId: true, tipo: true },
+    });
+    if (movs.length === 0) return;
+    const ids = movs.map((m) => m.id);
+    await tx.imputacionCuentaCorriente.deleteMany({ where: { tenantId, OR: [{ debeId: { in: ids } }, { haberId: { in: ids } }] } });
+    const comprobantes = await this.comprobantes.paraCuentaCorriente(tenantId, movs.map((m) => m.comprobanteId!).filter(Boolean));
+    for (const c of comprobantes) {
+      const impacto = await this.impactoDeComprobante(tx, tenantId, c);
+      await tx.movimientoCuentaCorriente.update({
+        where: { tenantId_comprobanteId: { tenantId, comprobanteId: c.id } },
+        data: { importe: impacto.importe.toFixed(2), observaciones: impacto.observaciones },
+      });
+    }
+    for (const c of comprobantes.filter((x) => NOTAS_CREDITO.includes(x.tipo) && x.asociadoId)) {
+      const nc = await tx.movimientoCuentaCorriente.findUniqueOrThrow({ where: { tenantId_comprobanteId: { tenantId, comprobanteId: c.id } } });
+      await this.imputarNotaASuFactura(tx, tenantId, nc, c.asociadoId!);
+    }
+    await this.imputarProyecto(tx, tenantId, proyectoId);
+  }
+
+  /** Tipo de cambio para un pago: el editado, el fijo del proyecto o la cotización de ARCA del día. */
+  tipoCambioPara(tenantId: string, editado: string | null | undefined, fijoProyecto: Prisma.Decimal | null | undefined) {
+    return elegirTipoCambio(editado, fijoProyecto?.toString() ?? null, () => this.cotizacion.cotizacionDolar(tenantId));
+  }
+
+  /** Lo que cancela en la moneda de destino un pago hecho en otra moneda. */
+  convertirPago(importe: string, origen: Moneda, destino: Moneda, tipoCambio: Decimal.Value | null) {
+    return convertir(importe, origen, destino, tipoCambio);
+  }
+
+  /** Bloqueo de la empresa para que ProyectosService encadene escrituras con la misma serialización. */
+  bloquearEmpresa(tx: Prisma.TransactionClient, tenantId: string) {
+    return this.bloquear(tx, tenantId);
+  }
+
   /** Serializa sincronización e imputaciones de una misma empresa (se libera al terminar la transacción). */
   private async bloquear(tx: Prisma.TransactionClient, tenantId: string) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`cuenta-corriente:${tenantId}`}))`;
   }
 
+  /** Lo que se le puede imputar a un DEBE: lo pendiente, y en un hito por certificación solo lo certificado. */
   private async pendienteDebe(tx: Prisma.TransactionClient, tenantId: string, debeId: string): Promise<Decimal> {
-    const [mov, suma] = await Promise.all([
-      tx.movimientoCuentaCorriente.findUniqueOrThrow({ where: { tenantId_id: { tenantId, id: debeId } }, select: { importe: true } }),
+    const [mov, suma, certificado] = await Promise.all([
+      tx.movimientoCuentaCorriente.findUniqueOrThrow({ where: { tenantId_id: { tenantId, id: debeId } }, select: { importe: true, porCertificacion: true } }),
       tx.imputacionCuentaCorriente.aggregate({ where: { tenantId, debeId }, _sum: { importe: true } }),
+      tx.certificacionHito.aggregate({ where: { tenantId, hitoId: debeId }, _sum: { importe: true } }),
     ]);
-    return pendienteDe(mov.importe.toString(), [suma._sum.importe?.toString() ?? '0']);
+    return pendientesDe({
+      importe: mov.importe.toString(),
+      imputado: suma._sum.importe?.toString() ?? '0',
+      porCertificacion: mov.porCertificacion,
+      certificado: certificado._sum.importe?.toString() ?? '0',
+    }).exigible;
   }
 
   private async disponibleHaber(tx: Prisma.TransactionClient, tenantId: string, haberId: string): Promise<Decimal> {
@@ -234,39 +437,93 @@ export class CuentaCorrienteService {
 
   // ───────────────────────────── Lectura ─────────────────────────────
 
-  /** DEBE con algo pendiente de cobro, de todas las cuentas. `nombres`: razón social por id de cliente. */
-  private async debesAbiertos(tenantId: string, nombres: Map<string, string>): Promise<DebeAbierto[]> {
+  /**
+   * Lo exigible pendiente de cobro, de todas las cuentas: cada DEBE con lo que le falta y, en los
+   * hitos por certificación, cada certificación con lo que le falta (lo no certificado no vence ni
+   * se avisa). `nombres`: razón social por id de cliente.
+   */
+  async debesAbiertos(tenantId: string, nombres: Map<string, string>, clienteId?: string): Promise<DebeAbierto[]> {
     const filas = await this.prisma.movimientoCuentaCorriente.findMany({
-      where: { tenantId, tipo: 'DEBE' },
+      where: { tenantId, tipo: 'DEBE', ...(clienteId ? { clienteId } : {}) },
       select: {
         id: true,
         clienteId: true,
+        proyectoId: true,
+        proyecto: { select: { nombre: true } },
         concepto: true,
         numero: true,
         moneda: true,
         importe: true,
+        porCertificacion: true,
         fecha: true,
         fechaVencimiento: true,
         imputacionesComoDebe: { select: { importe: true } },
+        certificaciones: { select: { id: true, descripcion: true, importe: true, fecha: true, fechaVencimiento: true } },
       },
     });
-    return filas
-      .map((f) => ({
-        id: f.id,
+    const abiertos: DebeAbierto[] = [];
+    for (const f of filas) {
+      const imputado = f.imputacionesComoDebe.reduce((acc, i) => acc.plus(i.importe.toString()), new Decimal(0));
+      const base = {
         clienteId: f.clienteId,
         razonSocial: nombres.get(f.clienteId) ?? '—',
-        concepto: f.concepto,
+        proyectoId: f.proyectoId,
+        proyecto: f.proyecto?.nombre ?? null,
         numero: f.numero,
         moneda: f.moneda,
-        importe: new Decimal(f.importe.toString()),
-        pendiente: pendienteDe(
-          f.importe.toString(),
-          f.imputacionesComoDebe.map((i) => i.importe.toString()),
-        ),
         fecha: f.fecha,
-        fechaVencimiento: f.fechaVencimiento,
-      }))
-      .filter((d) => d.pendiente.gt(0));
+      };
+      if (!f.porCertificacion) {
+        const pendiente = pendienteDe(f.importe.toString(), [imputado]);
+        if (pendiente.gt(0)) {
+          abiertos.push({ ...base, id: f.id, certificacionId: null, concepto: f.concepto, importe: new Decimal(f.importe.toString()), pendiente, fechaVencimiento: f.fechaVencimiento });
+        }
+        continue;
+      }
+      const pendientes = new Map(
+        pendientePorCertificacion(
+          imputado,
+          f.certificaciones.map((c) => ({ id: c.id, importe: c.importe.toString(), fecha: c.fecha, fechaVencimiento: c.fechaVencimiento })),
+        ).map((x) => [x.id, x.pendiente]),
+      );
+      for (const c of f.certificaciones) {
+        const pendiente = pendientes.get(c.id) ?? new Decimal(0);
+        if (pendiente.lte(0)) continue;
+        abiertos.push({
+          ...base,
+          id: f.id,
+          certificacionId: c.id,
+          concepto: `${f.concepto}: ${c.descripcion}`,
+          importe: new Decimal(c.importe.toString()),
+          pendiente,
+          fecha: c.fecha,
+          fechaVencimiento: c.fechaVencimiento,
+        });
+      }
+    }
+    return abiertos;
+  }
+
+  /** Lo que falta certificar por cliente y moneda (suma al saldo total, no al exigible). */
+  private async aCertificarPorCliente(tenantId: string): Promise<Map<string, Map<string, Decimal>>> {
+    const hitos = await this.prisma.movimientoCuentaCorriente.findMany({
+      where: { tenantId, tipo: 'DEBE', porCertificacion: true },
+      select: { clienteId: true, moneda: true, importe: true, certificaciones: { select: { importe: true } } },
+    });
+    const r = new Map<string, Map<string, Decimal>>();
+    for (const h of hitos) {
+      const falta = pendientesDe({
+        importe: h.importe.toString(),
+        imputado: 0,
+        porCertificacion: true,
+        certificado: h.certificaciones.reduce((acc, c) => acc.plus(c.importe.toString()), new Decimal(0)),
+      }).aCertificar;
+      if (falta.lte(0)) continue;
+      const porMoneda = r.get(h.clienteId) ?? new Map<string, Decimal>();
+      porMoneda.set(h.moneda, (porMoneda.get(h.moneda) ?? new Decimal(0)).plus(falta));
+      r.set(h.clienteId, porMoneda);
+    }
+    return r;
   }
 
   /** Saldo por moneda de cada cliente: DEBE − HABER. */
@@ -303,6 +560,11 @@ export class CuentaCorrienteService {
     for (const lista of saldos.values()) {
       for (const s of lista) porCobrar.set(s.moneda, (porCobrar.get(s.moneda) ?? new Decimal(0)).plus(s.saldo));
     }
+    // Lo que falta certificar está en el total por cobrar, pero todavía no se puede cobrar.
+    const aCertificar = new Map<string, Decimal>();
+    for (const porMoneda of (await this.aCertificarPorCliente(tenantId)).values()) {
+      for (const [moneda, v] of porMoneda) aCertificar.set(moneda, (aCertificar.get(moneda) ?? new Decimal(0)).plus(v));
+    }
     const sumarPorMoneda = (items: DebeAbierto[]) => {
       const m = new Map<string, Decimal>();
       for (const i of items) m.set(i.moneda, (m.get(i.moneda) ?? new Decimal(0)).plus(i.pendiente));
@@ -312,6 +574,9 @@ export class CuentaCorrienteService {
       id: d.id,
       clienteId: d.clienteId,
       razonSocial: d.razonSocial,
+      proyectoId: d.proyectoId,
+      proyecto: d.proyecto,
+      certificacionId: d.certificacionId,
       concepto: d.concepto,
       numero: d.numero,
       moneda: d.moneda,
@@ -327,6 +592,7 @@ export class CuentaCorrienteService {
     return {
       diasProximos,
       porCobrar: [...porCobrar.entries()].sort(([a], [b]) => ordenMoneda(a, b)).map(([moneda, total]) => ({ moneda, total: dinero(total) })),
+      aCertificar: [...aCertificar.entries()].sort(([a], [b]) => ordenMoneda(a, b)).map(([moneda, total]) => ({ moneda, total: dinero(total) })),
       vencido: sumarPorMoneda(vencidos),
       proximo: sumarPorMoneda(proximos),
       vencidos: vencidos.map(item),
@@ -341,9 +607,10 @@ export class CuentaCorrienteService {
   async cuentas(tenantId: string) {
     await this.sincronizar(tenantId);
     const clientes = await this.clientes.todosParaCuentas(tenantId);
-    const [saldos, abiertos] = await Promise.all([
+    const [saldos, abiertos, aCertificar] = await Promise.all([
       this.saldosPorCliente(tenantId),
       this.debesAbiertos(tenantId, new Map(clientes.map((c) => [c.id, c.razonSocial]))),
+      this.aCertificarPorCliente(tenantId),
     ]);
     const hoy = hoyAr();
     const abiertosPorCliente = new Map<string, DebeAbierto[]>();
@@ -362,7 +629,12 @@ export class CuentaCorrienteService {
           numeroDocumento: c.numeroDocumento,
           activo: c.activo,
           tieneMovimientos: saldos.has(c.id),
-          saldos: (saldos.get(c.id) ?? []).map((s) => ({ moneda: s.moneda, saldo: dinero(s.saldo) })),
+          saldos: (saldos.get(c.id) ?? []).map((s) => ({
+            moneda: s.moneda,
+            saldo: dinero(s.saldo),
+            // Sin lo que falta certificar de sus proyectos.
+            exigible: dinero(s.saldo.minus(aCertificar.get(c.id)?.get(s.moneda) ?? 0)),
+          })),
           comprobantesPendientes: propios.length,
           proximoVencimiento: aYmd(proximo),
           vencido: proximo !== null && proximo < hoy,
@@ -389,6 +661,8 @@ export class CuentaCorrienteService {
     const movimientos = await this.prisma.movimientoCuentaCorriente.findMany({
       where: { tenantId, clienteId },
       include: {
+        proyecto: { select: { id: true, nombre: true } },
+        certificaciones: { select: { importe: true } },
         imputacionesComoDebe: { select: { id: true, importe: true, automatica: true, haber: contraparte }, orderBy: { createdAt: 'asc' } },
         imputacionesComoHaber: { select: { id: true, importe: true, automatica: true, debe: contraparte }, orderBy: { createdAt: 'asc' } },
       },
@@ -403,10 +677,14 @@ export class CuentaCorrienteService {
         m.tipo === 'DEBE'
           ? m.imputacionesComoDebe.map((i) => ({ id: i.id, importe: dinero(i.importe.toString()), automatica: i.automatica, movimiento: i.haber }))
           : m.imputacionesComoHaber.map((i) => ({ id: i.id, importe: dinero(i.importe.toString()), automatica: i.automatica, movimiento: i.debe }));
-      const pendiente = pendienteDe(
-        m.importe.toString(),
-        imputaciones.map((i) => i.importe),
-      );
+      const certificado = m.certificaciones.reduce((acc, c) => acc.plus(c.importe.toString()), new Decimal(0));
+      const pendientes = pendientesDe({
+        importe: m.importe.toString(),
+        imputado: imputaciones.reduce((acc, i) => acc.plus(i.importe), new Decimal(0)),
+        porCertificacion: m.porCertificacion,
+        certificado,
+      });
+      const pendiente = pendientes.total;
       return {
         id: m.id,
         tipo: m.tipo,
@@ -419,8 +697,16 @@ export class CuentaCorrienteService {
         importe: dinero(m.importe.toString()),
         fecha: aYmd(m.fecha),
         fechaVencimiento: aYmd(m.fechaVencimiento),
-        vencido: m.tipo === 'DEBE' && pendiente.gt(0) && m.fechaVencimiento !== null && m.fechaVencimiento < hoy,
+        vencido: m.tipo === 'DEBE' && pendientes.exigible.gt(0) && m.fechaVencimiento !== null && m.fechaVencimiento < hoy,
         observaciones: m.observaciones,
+        proyecto: m.proyecto,
+        porCertificacion: m.porCertificacion,
+        certificado: m.porCertificacion ? dinero(certificado) : null,
+        aCertificar: m.porCertificacion ? dinero(pendientes.aCertificar) : null,
+        monedaOrigen: m.monedaOrigen,
+        importeOrigen: m.importeOrigen ? dinero(m.importeOrigen.toString()) : null,
+        tipoCambio: m.tipoCambio?.toString() ?? null,
+        anulado: m.origen === 'RECIBO' && movimientos.some((x) => x.anulaId === m.id),
         pendiente: dinero(pendiente),
         estado: estadoDe(m.importe.toString(), pendiente),
         saldo: dinero(acumulados.get(m.id) ?? 0),
@@ -432,11 +718,13 @@ export class CuentaCorrienteService {
       };
     });
 
+    const aCertificar = (await this.aCertificarPorCliente(tenantId)).get(clienteId);
     return {
       cliente,
       saldos: saldosPorMoneda(movimientos.map((m) => ({ tipo: m.tipo, moneda: m.moneda, importe: m.importe.toString() }))).map((s) => ({
         moneda: s.moneda,
         saldo: dinero(s.saldo),
+        exigible: dinero(s.saldo.minus(aCertificar?.get(s.moneda) ?? 0)),
       })),
       movimientos: filas.reverse(),
     };
@@ -470,6 +758,23 @@ export class CuentaCorrienteService {
     if (esDebe && dto.imputarA?.length) throw new BadRequestException('Solo un cobro o un crédito se imputa a facturas.');
     if (esDebe) this.validarVencimiento(dto.fecha, dto.fechaVencimiento);
 
+    // Con proyecto: es del cliente y se registra en su moneda (un pago en otra moneda se convierte).
+    const proyecto = dto.proyectoId
+      ? await this.prisma.proyecto.findUnique({ where: { tenantId_id: { tenantId, id: dto.proyectoId } } })
+      : null;
+    if (dto.proyectoId && (!proyecto || proyecto.clienteId !== dto.clienteId)) throw new BadRequestException('El proyecto no es de este cliente.');
+    if (proyecto && dto.imputarA?.length) throw new BadRequestException('Un pago de un proyecto se imputa solo, a las deudas de ese proyecto.');
+    let moneda = dto.moneda;
+    let importe = new Decimal(dto.importe);
+    let conversion: { monedaOrigen: Moneda; importeOrigen: string; tipoCambio: string } | null = null;
+    if (proyecto && proyecto.moneda !== dto.moneda) {
+      if (esDebe) throw new BadRequestException(`Los cargos de este proyecto van en su moneda (${proyecto.moneda}).`);
+      const tc = await this.tipoCambioPara(tenantId, dto.tipoCambio, proyecto.tipoCambioFijo);
+      importe = convertir(dto.importe, dto.moneda, proyecto.moneda, tc.valor);
+      conversion = { monedaOrigen: dto.moneda, importeOrigen: dto.importe, tipoCambio: tc.valor.toString() };
+      moneda = proyecto.moneda;
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await this.bloquear(tx, tenantId);
       const mov = await tx.movimientoCuentaCorriente.create({
@@ -478,16 +783,22 @@ export class CuentaCorrienteService {
           clienteId: dto.clienteId,
           tipo: dto.tipo,
           origen: 'MANUAL',
+          proyectoId: proyecto?.id ?? null,
           concepto: dto.concepto,
           numero: dto.numero || null,
-          moneda: dto.moneda,
-          importe: dto.importe,
+          moneda,
+          importe: importe.toFixed(2),
+          ...(conversion ?? {}),
           fecha: deYmd(dto.fecha),
           fechaVencimiento: esDebe && dto.fechaVencimiento ? deYmd(dto.fechaVencimiento) : null,
           observaciones: dto.observaciones || null,
           creadoPorId: auth.usuarioId ?? null,
         },
       });
+      if (proyecto) {
+        await this.imputarProyecto(tx, tenantId, proyecto.id);
+        return { id: mov.id };
+      }
       const ids = [...new Set(dto.imputarA ?? [])];
       if (ids.length) {
         const debes = await tx.movimientoCuentaCorriente.findMany({
@@ -496,6 +807,7 @@ export class CuentaCorrienteService {
         });
         if (debes.length !== ids.length) throw new BadRequestException('Uno de los comprobantes elegidos no es de esta cuenta.');
         if (debes.some((d) => d.moneda !== dto.moneda)) throw new BadRequestException('Los comprobantes elegidos tienen que estar en la moneda del cobro.');
+        if (debes.some((d) => d.proyectoId)) throw new BadRequestException('Un cobro sin proyecto no cancela deudas de un proyecto.');
         const candidatos = await Promise.all(debes.map(async (d) => ({ id: d.id, pendiente: await this.pendienteDebe(tx, tenantId, d.id) })));
         for (const r of repartirHaber(dto.importe, candidatos)) {
           await tx.imputacionCuentaCorriente.create({
@@ -553,7 +865,12 @@ export class CuentaCorrienteService {
     if (mov.origen !== 'MANUAL') {
       throw new BadRequestException('Los movimientos de comprobantes y recibos no se eliminan: para anular una factura, emití una nota de crédito.');
     }
-    await this.prisma.movimientoCuentaCorriente.delete({ where: { tenantId_id: { tenantId, id } } });
+    await this.prisma.$transaction(async (tx) => {
+      await this.bloquear(tx, tenantId);
+      await tx.movimientoCuentaCorriente.delete({ where: { tenantId_id: { tenantId, id } } });
+      // Lo que cubría (o lo cubría a él) se vuelve a repartir dentro del proyecto.
+      if (mov.proyectoId) await this.imputarProyecto(tx, tenantId, mov.proyectoId);
+    }, TX);
     return { id };
   }
 
@@ -566,11 +883,14 @@ export class CuentaCorrienteService {
     if (debe.tipo !== 'DEBE') throw new BadRequestException('Solo se imputa a una factura, nota de débito o cargo.');
     if (haber.clienteId !== debe.clienteId) throw new BadRequestException('Los dos movimientos tienen que ser del mismo cliente.');
     if (haber.moneda !== debe.moneda) throw new BadRequestException('Los dos movimientos tienen que estar en la misma moneda.');
+    if (haber.proyectoId !== debe.proyectoId) {
+      throw new BadRequestException(haber.proyectoId ? 'Un pago de un proyecto solo se imputa a deudas de ese proyecto.' : 'Un cobro sin proyecto solo se imputa a deudas sin proyecto.');
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await this.bloquear(tx, tenantId);
       const [pendiente, disponible] = await Promise.all([this.pendienteDebe(tx, tenantId, debe.id), this.disponibleHaber(tx, tenantId, haber.id)]);
-      if (pendiente.lte(0)) throw new BadRequestException('Ese comprobante ya está cobrado.');
+      if (pendiente.lte(0)) throw new BadRequestException('Ese comprobante ya está cobrado (o no tiene nada certificado para cobrar).');
       if (disponible.lte(0)) throw new BadRequestException('Ese cobro ya está imputado por completo.');
       const importe = importeAImputar(pendiente, disponible, dto.importe);
       const existente = await tx.imputacionCuentaCorriente.findUnique({

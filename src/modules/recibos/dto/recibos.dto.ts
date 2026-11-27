@@ -139,3 +139,10 @@ export class SiguienteNumeroQuery {
   @IsIn(['COBRO', 'PAGO'])
   tipo: 'COBRO' | 'PAGO';
 }
+
+export class AnularReciboDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Contá por qué se anula el recibo.' })
+  @MaxLength(300)
+  motivo: string;
+}

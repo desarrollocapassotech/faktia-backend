@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
-import { CurrentAuth, type AuthContext } from '../../auth';
+import { CurrentAuth, Modulo, type AuthContext } from '../../auth';
 import { WebhooksService } from './webhooks.service';
 
 export class CrearWebhookDto {
@@ -39,6 +39,7 @@ export class ActualizarWebhookDto {
 
 /** Configuración de webhooks (usuario logueado). No forma parte de la API pública. */
 @ApiExcludeController()
+@Modulo('webhooks')
 @Controller('configuracion/webhooks')
 export class WebhooksController {
   constructor(private readonly webhooks: WebhooksService) {}

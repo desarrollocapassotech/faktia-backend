@@ -19,6 +19,7 @@ import { CurrentAuth, type AuthContext } from '../auth';
 import {
   ActualizarEmisorDto,
   ActualizarPlantillaPdfDto,
+  ActualizarPreferenciasDto,
   ActualizarPuntoVentaDto,
   CargarCertificadoDto,
   CrearPuntoVentaDto,
@@ -49,6 +50,17 @@ export class TenantsController {
         ? await this.padron.datosParaAlta(auth.tenantId, dto.cuit)
         : undefined;
     return this.tenants.actualizarEmisor(auth.tenantId, dto, deArca);
+  }
+
+  /** Módulos habilitados y etiquetas (Proyecto / Obra…). */
+  @Get('preferencias')
+  preferencias(@CurrentAuth() auth: AuthContext) {
+    return this.tenants.obtenerPreferencias(auth.tenantId);
+  }
+
+  @Patch('preferencias')
+  actualizarPreferencias(@CurrentAuth() auth: AuthContext, @Body() dto: ActualizarPreferenciasDto) {
+    return this.tenants.actualizarPreferencias(auth.tenantId, dto);
   }
 
   /** Empresa con CUIT ya guardado: bloquea lo que coincide con ARCA y sugiere el inicio de actividades. */

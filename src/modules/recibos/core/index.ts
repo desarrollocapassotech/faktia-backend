@@ -10,4 +10,5 @@ export {
   type ReciboInput,
   type ReciboOutput,
   type ReciboPago,
+  type SeccionRecibo,
 } from './recibo.types';

@@ -1,6 +1,6 @@
 # Facturador — Plan y estado del trabajo
 
-> Documento de traspaso para retomar el proyecto en otra sesión. Última actualización: 2026-10-06.
+> Documento de traspaso para retomar el proyecto en otra sesión. Última actualización: 2026-11-27 (fase Ale Herrería).
 > La arquitectura detallada (esquema, contratos, flujos y decisiones) está en [ARCHITECTURE.md](ARCHITECTURE.md).
 > Para retomar: leé este archivo, después ARCHITECTURE.md, y seguí desde "Próximo paso".
 
@@ -259,6 +259,21 @@ Verificado en verde: 238 tests unitarios, los e2e de aislamiento y de la API pú
 - La extensión Prisma que inyecta `tenantId` automáticamente (ARCHITECTURE.md §9) **no está hecha**. Hoy cada query filtra `tenantId` a mano, respaldado por las FKs compuestas. Evaluarla y sumar tests e2e cruzados entre tenants.
 - `npm audit` del backend marca 25 vulnerabilidades (en su mayoría de dependencias de desarrollo): revisar antes de producción.
 - Si cambia el certificado mientras un comprobante está PENDIENTE_VERIFICACION, la verificación usa las credenciales nuevas (caso borde).
+
+### Fase Ale Herrería (desde 2026-11-26)
+
+Implementación de `docs/DOC_FUNCIONAL.md` para el primer cliente (Ale Herrería), con nombres genéricos. Detalle, decisiones y pendientes en `docs/REVISION.md`.
+
+| Subfase | Estado |
+|---|---|
+| 1. Base: módulos por empresa, etiquetas de proyecto, firma, clientes sin documento | ✅ Hecha (migración `20261126120000_ale_base`) |
+| 2. Proyectos + cuenta corriente + recibos | ✅ Hecha (migración `20261126130000_ale_proyectos`) |
+| 3. Avisos por email | ✅ Hecha (migración `20261126140000_ale_avisos`) |
+| 4. Presupuestos | ✅ Hecha (migración `20261126150000_ale_presupuestos`) |
+| 5. Materiales + proveedores | ✅ Hecha (migración `20261127120000_ale_materiales`) |
+| 6. Documentación | ✅ Hecha (ARCHITECTURE §4 y D7–D12, REVISION.md, muestras de PDF) |
+
+Para retomar: Postgres local (`initdb` + `pg_ctl`, usuario `faktia`), `.env` apuntando a él, `npx prisma migrate deploy` y `npx jest --ci`.
 
 ## 4. Datos operativos
 

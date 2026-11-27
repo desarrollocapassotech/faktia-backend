@@ -3,11 +3,12 @@ import { ApiOkResponse, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagg
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AccesoService } from './acceso.service';
 import type { AuthContext } from './auth-context';
-import { ApiKey, CurrentAuth, Public } from './decorators';
+import { ApiKey, CurrentAuth, Modulo, Public } from './decorators';
 import { CanjearTokenDto, CrearIntegracionDto, EmitirTokenAccesoDto } from './dto/integraciones.dto';
 import { IntegracionesService } from './integraciones.service';
 
 /** Gestión de API keys (usuario logueado). */
+@Modulo('integraciones')
 @Controller('integraciones')
 export class IntegracionesController {
   constructor(private readonly integraciones: IntegracionesService) {}

@@ -8,7 +8,33 @@ import { PrismaService } from '../../shared/prisma/prisma.service';
 import { dibujarGeneradoCon, fuentesPdf } from '../../shared/pdf/marca-pdf';
 import { formatearCuit } from '../../shared/util/cuit';
 import { TenantsService } from '../tenants';
-import { generarRecibo, ReciboInvalidoError, type Parte, type ReciboEstilo, type ReciboInput, type ReciboOutput } from './core';
+import { generarRecibo, ReciboInvalidoError, type Parte, type ReciboEstilo, type ReciboInput, type ReciboOutput, type SeccionRecibo } from './core';
+import { formatearImporte, seccionesDeEstado, type EstadoProyectoRecibo } from './estado-proyecto';
+
+const CONDICION_IVA_TEXTO: Record<string, string> = {
+  RESPONSABLE_INSCRIPTO: 'IVA Responsable Inscripto',
+  EXENTO: 'IVA Exento',
+  MONOTRIBUTO: 'Responsable Monotributo',
+  MONOTRIBUTO_SOCIAL: 'Monotributista Social',
+  MONOTRIBUTO_TIP: 'Monotributista Trabajador Independiente Promovido',
+};
+
+/** Lo que agrega la cuenta corriente al guardar un recibo de una entrega de un proyecto. */
+export interface ExtrasReciboProyecto {
+  proyectoId: string;
+  /** Pago en otra moneda que el proyecto: lo que cancela en la moneda del proyecto. */
+  monedaImputacion?: 'ARS' | 'USD';
+  importeImputacion?: string;
+  tipoCambio?: string;
+}
+
+/** Datos que no van en el dto del PDF: equivalencia, estado del proyecto y anulación. */
+interface ExtrasPdf {
+  qr?: ReciboEstilo['qr'];
+  secciones?: SeccionRecibo[];
+  datosExtra?: Array<[string, string]>;
+  anulado?: boolean;
+}
 
 /** Propósito de la firma del link de verificación (no sirve para otros usos). */
 const PROPOSITO_VERIFICACION = 'recibo.verificar';
@@ -57,6 +83,10 @@ export interface ReciboResumen {
 export interface ReciboParaCuentaCorriente {
   id: string;
   clienteId: string | null;
+  proyectoId: string | null;
+  monedaImputacion: Recibo['moneda'] | null;
+  importeImputacion: Prisma.Decimal | null;
+  tipoCambio: Prisma.Decimal | null;
   numero: string | null;
   fecha: Date;
   moneda: Recibo['moneda'];
@@ -151,12 +181,20 @@ export class RecibosService {
   }
 
   /** Arma el PDF (valida el contenido: total = suma de los conceptos). Con `qr`, lo dibuja al pie. */
-  async generar(tenantId: string, dto: GenerarReciboDto, qr?: ReciboEstilo['qr']): Promise<ReciboOutput> {
+  async generar(tenantId: string, dto: GenerarReciboDto, extras: ExtrasPdf = {}): Promise<ReciboOutput> {
     const [emisor, plantilla] = await Promise.all([this.tenants.obtenerEmisorCompleto(tenantId), this.tenants.obtenerPlantilla(tenantId)]);
+    const detalle = [
+      emisor.telefono ? `Tel. ${emisor.telefono}` : '',
+      emisor.emailContacto ?? '',
+      emisor.ingresosBrutos ? `Ingresos Brutos: ${emisor.ingresosBrutos}` : '',
+      emisor.inicioActividades ? `Inicio de actividades: ${emisor.inicioActividades.toISOString().slice(0, 10).split('-').reverse().join('/')}` : '',
+      CONDICION_IVA_TEXTO[emisor.condicionIva] ?? '',
+    ].filter(Boolean);
     const tenant: Parte = {
       nombre: emisor.razonSocial,
       documento: `CUIT ${formatearCuit(emisor.cuit)}`,
       domicilio: emisor.domicilioFiscal,
+      detalle,
     };
     const base = {
       numero: dto.numero,
@@ -166,6 +204,8 @@ export class RecibosService {
       total: dto.total,
       medioPago: dto.medioPago,
       observaciones: dto.observaciones,
+      datosExtra: extras.datosExtra,
+      secciones: extras.secciones,
     };
     const input: ReciboInput =
       dto.tipo === 'COBRO'
@@ -184,7 +224,9 @@ export class RecibosService {
         lineaFirma: dto.tipo !== 'COBRO',
         fuentes: { normal: fuentes.normal, seminegrita: fuentes.seminegrita, italica: fuentes.italica },
         marcaPie: dibujarGeneradoCon,
-        qr,
+        qr: extras.qr,
+        firmaTexto: plantilla.firmaTexto ?? undefined,
+        anulado: extras.anulado,
       });
     } catch (err) {
       if (err instanceof ReciboInvalidoError) throw new BadRequestException(err.message);
@@ -193,7 +235,7 @@ export class RecibosService {
   }
 
   /** Guarda el recibo. Antes arma el PDF: si el contenido no es válido, no se guarda nada. */
-  async crear(auth: AuthContext, dto: CrearReciboDto): Promise<Recibo> {
+  async crear(auth: AuthContext, dto: CrearReciboDto, proyecto?: ExtrasReciboProyecto): Promise<Recibo> {
     await this.generar(auth.tenantId, dto);
     const numero = dto.numero?.trim() || null;
     try {
@@ -213,6 +255,10 @@ export class RecibosService {
           periodo: dto.tipo === 'PAGO' ? dto.periodo?.trim() || null : null,
           medioPago: dto.medioPago?.trim() || null,
           observaciones: dto.observaciones?.trim() || null,
+          proyectoId: proyecto?.proyectoId ?? null,
+          monedaImputacion: proyecto?.monedaImputacion ?? null,
+          importeImputacion: proyecto?.importeImputacion ?? null,
+          tipoCambio: proyecto?.tipoCambio ?? null,
           creadoPorId: auth.usuarioId ?? null,
         },
       });
@@ -240,6 +286,15 @@ export class RecibosService {
     const contraparte = r.contraparte as unknown as Parte;
     const imagen = await QRCode.toBuffer(this.urlVerificacion(r.id), { width: 240, margin: 1 });
     const qr = { imagen, leyenda: 'Escaneá el código para verificar que este recibo es válido y fue emitido con Faktia.' };
+    const estado = r.estadoProyecto as unknown as EstadoProyectoRecibo | null;
+    const datosExtra: Array<[string, string]> = [];
+    if (r.tipoCambio && r.monedaImputacion && r.importeImputacion && r.monedaImputacion !== r.moneda) {
+      datosExtra.push([
+        'Equivalencia',
+        `${formatearImporte(r.importeImputacion.toFixed(2), r.monedaImputacion)} al tipo de cambio ${formatearImporte(r.tipoCambio.toFixed(2), 'ARS')} por dólar`,
+      ]);
+    }
+    if (r.anuladoEn) datosExtra.push(['Anulado', `${r.anuladoEn.toISOString().slice(0, 10).split('-').reverse().join('/')}${r.motivoAnulacion ? `: ${r.motivoAnulacion}` : ''}`]);
     return this.generar(tenantId, {
       tipo: r.tipo,
       numero: r.numero ?? undefined,
@@ -252,7 +307,40 @@ export class RecibosService {
       observaciones: r.observaciones ?? undefined,
       comprobantesAplicados: (r.comprobantesAplicados as unknown as GenerarReciboDto['comprobantesAplicados']) ?? undefined,
       periodo: r.periodo ?? undefined,
-    }, qr);
+    }, { qr, datosExtra, secciones: estado ? seccionesDeEstado(estado) : undefined, anulado: Boolean(r.anuladoEn) });
+  }
+
+  /** Guarda la copia del estado del proyecto (la arma la cuenta corriente después de imputar el cobro). */
+  async guardarEstadoProyecto(tenantId: string, id: string, estado: EstadoProyectoRecibo): Promise<void> {
+    await this.prisma.recibo.update({ where: { tenantId_id: { tenantId, id } }, data: { estadoProyecto: { ...estado } } });
+  }
+
+  /**
+   * Anula un recibo: queda guardado con la marca y el motivo, y la cuenta corriente revierte su cobro
+   * con un movimiento de anulación (no se borra nada).
+   */
+  async anular(tenantId: string, id: string, motivo: string): Promise<Recibo> {
+    const r = await this.obtener(tenantId, id);
+    if (r.anuladoEn) throw new BadRequestException('El recibo ya está anulado.');
+    return this.prisma.recibo.update({
+      where: { tenantId_id: { tenantId, id } },
+      data: { anuladoEn: new Date(), motivoAnulacion: motivo.trim() || null },
+    });
+  }
+
+  /** Para la cuenta corriente: recibos de cobro anulados (su cobro se revierte). */
+  async idsAnulados(tenantId: string): Promise<string[]> {
+    const filas = await this.prisma.recibo.findMany({ where: { tenantId, tipo: 'COBRO', anuladoEn: { not: null } }, select: { id: true } });
+    return filas.map((f) => f.id);
+  }
+
+  /** Recibos de un proyecto (para su pantalla), del más nuevo al más viejo. */
+  listarDeProyecto(tenantId: string, proyectoId: string) {
+    return this.prisma.recibo.findMany({
+      where: { tenantId, proyectoId },
+      orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true, numero: true, fecha: true, moneda: true, total: true, anuladoEn: true, medioPago: true },
+    });
   }
 
   /** El número siguiente al del último recibo de ese tipo (numeraciones separadas por tipo). */
@@ -276,7 +364,20 @@ export class RecibosService {
     if (ids.length === 0) return Promise.resolve([]);
     return this.prisma.recibo.findMany({
       where: { tenantId, id: { in: ids }, tipo: 'COBRO', clienteId: { not: null } },
-      select: { id: true, clienteId: true, numero: true, fecha: true, moneda: true, total: true, medioPago: true, comprobantesAplicados: true },
+      select: {
+        id: true,
+        clienteId: true,
+        proyectoId: true,
+        numero: true,
+        fecha: true,
+        moneda: true,
+        total: true,
+        medioPago: true,
+        comprobantesAplicados: true,
+        monedaImputacion: true,
+        importeImputacion: true,
+        tipoCambio: true,
+      },
       orderBy: [{ fecha: 'asc' }, { createdAt: 'asc' }],
     });
   }

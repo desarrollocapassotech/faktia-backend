@@ -114,48 +114,72 @@ enum EstadoWebhookEntrega {
 // ─────────────────────────────── Tenants ───────────────────────────────
 
 model Tenant {
-  id                 String        @id @default(cuid())
-  slug               String        @unique
-  nombreFantasia     String
+  id                     String        @id @default(cuid())
+  slug                   String        @unique
+  nombreFantasia         String
   // Datos fiscales: null en una empresa recién registrada; se completan en Configuración
   // y son obligatorios para facturar (TenantsService.obtenerEmisorCompleto).
-  razonSocial        String?
-  cuit               String?       @unique // 11 dígitos, sin guiones
-  condicionIva       CondicionIva?
-  domicilioFiscal    String?
-  ingresosBrutos     String?
-  inicioActividades  DateTime?     @db.Date
+  razonSocial            String?
+  cuit                   String?       @unique // 11 dígitos, sin guiones
+  condicionIva           CondicionIva?
+  domicilioFiscal        String?
+  ingresosBrutos         String?
+  inicioActividades      DateTime?     @db.Date
   // Campos del emisor que salieron del padrón de ARCA ("razonSocial" | "condicionIva" |
   // "domicilioFiscal"): no se editan a mano (PadronEmisorService).
-  camposDeArca       String[]      @default([])
-  padronVerificadoEn DateTime?
-  ambienteArca       AmbienteArca  @default(HOMOLOGACION)
-  activo             Boolean       @default(true)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  camposDeArca           String[]      @default([])
+  padronVerificadoEn     DateTime?
+  ambienteArca           AmbienteArca  @default(HOMOLOGACION)
+  // Contacto que va en el encabezado de los documentos (presupuestos, recibos, listados).
+  telefono               String?
+  emailContacto          String?
+  // Módulos habilitados (shared/modulos/modulos.ts). El menú y el AuthGuard (@Modulo) los respetan.
+  modulosHabilitados     String[]      @default(["comprobantes", "recibos", "recibos-pago", "cuenta-corriente", "proyectos", "presupuestos", "materiales", "importaciones", "integraciones", "webhooks"])
+  // Cómo se llama la entidad Proyecto en pantalla y en los documentos (para Ale Herrería: "Obra" / "Obras").
+  etiquetaProyecto       String        @default("Proyecto")
+  etiquetaProyectoPlural String        @default("Proyectos")
+  // Resumen diario por email a los usuarios con lo vencido y lo que vence en los próximos días.
+  avisosEmail            Boolean       @default(true)
+  diasAvisoVencimiento   Int           @default(3)
+  // Validez por defecto de un presupuesto nuevo (días desde su fecha).
+  diasValidezPresupuesto Int           @default(15)
+  activo                 Boolean       @default(true)
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
-  usuarios             Usuario[]
-  integraciones        Integracion[]
-  tokensAcceso         TokenAcceso[]
-  puntosVenta          PuntoVenta[]
-  certificados         CertificadoArca[]
-  plantillaPdf         PlantillaPdf?
-  clientes             Cliente[]
-  referenciasClientes  ClienteReferenciaExterna[]
-  tarifas              Tarifa[]
-  plantillasMapeo      PlantillaMapeo[]
-  importaciones        Importacion[]
-  items                ItemFacturable[]
-  comprobantes         Comprobante[]
-  lineas               ComprobanteLinea[]
-  alicuotas            ComprobanteAlicuota[]
-  arcaLogs             ArcaLog[]
-  solicitudesIdem      SolicitudIdempotente[]
-  webhookSuscripciones WebhookSuscripcion[]
-  webhookEntregas      WebhookEntrega[]
-  recibos              Recibo[]
-  movimientosCc        MovimientoCuentaCorriente[]
-  imputacionesCc       ImputacionCuentaCorriente[]
+  usuarios              Usuario[]
+  integraciones         Integracion[]
+  tokensAcceso          TokenAcceso[]
+  puntosVenta           PuntoVenta[]
+  certificados          CertificadoArca[]
+  plantillaPdf          PlantillaPdf?
+  clientes              Cliente[]
+  referenciasClientes   ClienteReferenciaExterna[]
+  tarifas               Tarifa[]
+  plantillasMapeo       PlantillaMapeo[]
+  importaciones         Importacion[]
+  items                 ItemFacturable[]
+  comprobantes          Comprobante[]
+  lineas                ComprobanteLinea[]
+  alicuotas             ComprobanteAlicuota[]
+  arcaLogs              ArcaLog[]
+  solicitudesIdem       SolicitudIdempotente[]
+  webhookSuscripciones  WebhookSuscripcion[]
+  webhookEntregas       WebhookEntrega[]
+  recibos               Recibo[]
+  movimientosCc         MovimientoCuentaCorriente[]
+  imputacionesCc        ImputacionCuentaCorriente[]
+  proyectos             Proyecto[]
+  certificaciones       CertificacionHito[]
+  avisosEnviados        AvisoEmail[]
+  presupuestos          Presupuesto[]
+  presupuestoItems      PresupuestoItem[]
+  itemsBiblioteca       ItemBiblioteca[]
+  observacionesCatalogo ObservacionCatalogo[]
+  proveedores           Proveedor[]
+  materiales            Material[]
+  listadosMateriales    ListadoMateriales[]
+  renglonesListado      RenglonListado[]
 
   @@map("tenants")
 }
@@ -206,6 +230,8 @@ model PlantillaPdf {
   colorPrimario    String   @default("#111827")
   colorSecundario  String   @default("#6B7280")
   textoPie         String?
+  // Firma de los documentos que no van a ARCA (presupuestos, recibos, listados): "ATTE. ALEXIS NAHUEL HERMAN".
+  firmaTexto       String?
   mostrarDuplicado Boolean  @default(true)
   updatedAt        DateTime @updatedAt
 
@@ -349,7 +375,9 @@ model Cliente {
   tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   razonSocial        String
   tipoDocumento      TipoDocumento
-  numeroDocumento    String // "0" para consumidor final anónimo
+  numeroDocumento    String // "0" para consumidor final anónimo o cliente sin documento
+  // "TIPO:NUMERO" para que no se repita un documento en la empresa; null sin documento (puede haber varios).
+  claveDocumento     String?
   condicionIva       CondicionIva
   domicilio          String?
   email              String?
@@ -368,9 +396,12 @@ model Cliente {
   comprobantes  Comprobante[]
   recibos       Recibo[]
   movimientosCc MovimientoCuentaCorriente[]
+  proyectos     Proyecto[]
+  presupuestos  Presupuesto[]
 
   @@unique([tenantId, id])
-  @@unique([tenantId, tipoDocumento, numeroDocumento])
+  @@unique([tenantId, claveDocumento])
+  @@index([tenantId, tipoDocumento, numeroDocumento])
   @@map("clientes")
 }
 
@@ -559,6 +590,9 @@ model Comprobante {
   motivo         String?
 
   observaciones     String? // texto libre que va al PDF
+  // Proyecto (obra) al que corresponde: la cuenta corriente aplica su modo de IVA (ModoIvaProyecto).
+  proyectoId        String?
+  proyecto          Proyecto? @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
   cae               String?
   caeVencimiento    DateTime? @db.Date
   observacionesArca Json?
@@ -619,6 +653,18 @@ model Recibo {
   periodo               String? // solo PAGO
   medioPago             String?
   observaciones         String?
+  // Entrega de un proyecto: el pago se imputa a las deudas de ese proyecto y el PDF muestra su estado.
+  proyectoId            String?
+  proyecto              Proyecto?  @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  // Copia del estado del proyecto al guardar el recibo (EstadoProyectoRecibo): el PDF muestra el saldo de esa fecha.
+  estadoProyecto        Json?
+  // Pago en otra moneda que la deuda: cuánto cancela en la moneda del proyecto y con qué tipo de cambio.
+  monedaImputacion      Moneda?
+  importeImputacion     Decimal?   @db.Decimal(15, 2)
+  tipoCambio            Decimal?   @db.Decimal(15, 6)
+  // Anular no borra: la cuenta corriente revierte el cobro con un movimiento de anulación.
+  anuladoEn             DateTime?
+  motivoAnulacion       String?
   creadoPorId           String?
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
@@ -629,6 +675,7 @@ model Recibo {
   @@unique([tenantId, tipo, numero]) // Postgres permite múltiples NULL
   @@index([tenantId, fecha])
   @@index([tenantId, clienteId])
+  @@index([tenantId, proyectoId])
   @@map("recibos")
 }
 
@@ -642,41 +689,71 @@ enum TipoMovimientoCc {
 enum OrigenMovimientoCc {
   COMPROBANTE // factura / ND (DEBE) o NC (HABER) emitida: la crea la sincronización
   RECIBO // recibo de cobro guardado con un cliente: la crea la sincronización
-  MANUAL // cargado desde Cuenta corriente (saldo inicial, ajuste, cobro sin recibo)
+  MANUAL // cargado desde Cuenta corriente (saldo inicial, ajuste, cobro sin recibo) o adicional de un proyecto
+  ACUERDO // hito del monto acordado de un proyecto (DEBE)
+  ANULACION // revierte un cobro de un recibo anulado (DEBE imputado a ese HABER)
+}
+
+enum EstadoProyecto {
+  EN_CURSO
+  FINALIZADO
+  CANCELADO
+}
+
+/// Cómo impactan en la cuenta corriente las facturas de un proyecto con monto acordado.
+enum ModoIvaProyecto {
+  MAS_IVA // la factura suma solo su IVA y tributos (el neto ya está en el acordado); una NC los resta
+  ACORDADO_FINAL // la factura no suma nada: el acordado ya es el precio final
 }
 
 /// Un renglón de la cuenta corriente de un cliente (como Vialto). Los de comprobantes y recibos
 /// los crea la sincronización (CuentaCorrienteService.sincronizar), nunca se editan a mano salvo el
 /// vencimiento. Lo pendiente de cada uno no se guarda: sale de las imputaciones.
 model MovimientoCuentaCorriente {
-  id               String             @id @default(cuid())
+  id               String                      @id @default(cuid())
   tenantId         String
-  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   clienteId        String
-  cliente          Cliente            @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  cliente          Cliente                     @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
   tipo             TipoMovimientoCc
   origen           OrigenMovimientoCc
   comprobanteId    String?
-  comprobante      Comprobante?       @relation(fields: [tenantId, comprobanteId], references: [tenantId, id], onDelete: Cascade)
+  comprobante      Comprobante?                @relation(fields: [tenantId, comprobanteId], references: [tenantId, id], onDelete: Cascade)
   reciboId         String?
-  recibo           Recibo?            @relation(fields: [tenantId, reciboId], references: [tenantId, id], onDelete: Cascade)
+  recibo           Recibo?                     @relation(fields: [tenantId, reciboId], references: [tenantId, id], onDelete: Cascade)
   concepto         String // "Factura A", "Recibo de cobro", "Saldo inicial"…
   numero           String? // número del comprobante, recibo o referencia externa
   moneda           Moneda
-  importe          Decimal            @db.Decimal(15, 2) // siempre positivo; el tipo dice el signo
-  fecha            DateTime           @db.Date
-  fechaVencimiento DateTime?          @db.Date // solo DEBE
+  importe          Decimal                     @db.Decimal(15, 2) // siempre positivo; el tipo dice el signo
+  fecha            DateTime                    @db.Date
+  fechaVencimiento DateTime?                   @db.Date // solo DEBE
   observaciones    String?
+  // Proyecto (obra). Un HABER con proyecto se imputa solo a DEBE de ese proyecto; sin proyecto, solo a DEBE sin proyecto.
+  proyectoId       String?
+  proyecto         Proyecto?                   @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  // Hitos (origen ACUERDO): orden en el plan de pagos y si se cobra por certificaciones de avance.
+  orden            Int?
+  porCertificacion Boolean                     @default(false)
+  // Pago en otra moneda: lo que entró (moneda e importe) y el tipo de cambio usado. `importe` está en `moneda`.
+  monedaOrigen     Moneda?
+  importeOrigen    Decimal?                    @db.Decimal(15, 2)
+  tipoCambio       Decimal?                    @db.Decimal(15, 6)
+  // Origen ANULACION: el HABER (cobro de un recibo anulado) que revierte.
+  anulaId          String?
+  anula            MovimientoCuentaCorriente?  @relation("Anulacion", fields: [tenantId, anulaId], references: [tenantId, id], onDelete: Cascade)
+  anuladoPor       MovimientoCuentaCorriente[] @relation("Anulacion")
   creadoPorId      String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
 
   imputacionesComoDebe  ImputacionCuentaCorriente[] @relation("ImputacionDebe")
   imputacionesComoHaber ImputacionCuentaCorriente[] @relation("ImputacionHaber")
+  certificaciones       CertificacionHito[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, comprobanteId])
   @@unique([tenantId, reciboId])
+  @@index([tenantId, proyectoId])
   @@index([tenantId, clienteId, fecha])
   @@map("movimientos_cuenta_corriente")
 }
@@ -698,6 +775,63 @@ model ImputacionCuentaCorriente {
   @@unique([tenantId, haberId, debeId])
   @@index([tenantId, debeId])
   @@map("imputaciones_cuenta_corriente")
+}
+
+// ─────────────────────────────── Proyectos ───────────────────────────────
+
+/// Un trabajo para un cliente (en pantalla, con la etiqueta de la empresa: "Obra"). El monto acordado
+/// se divide en hitos, que son DEBE de la cuenta corriente (origen ACUERDO). No guarda saldos: salen
+/// de los movimientos.
+model Proyecto {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clienteId      String
+  cliente        Cliente         @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  nombre         String
+  ubicacion      String?
+  estado         EstadoProyecto  @default(EN_CURSO)
+  moneda         Moneda          @default(ARS)
+  montoAcordado  Decimal?        @db.Decimal(15, 2) // null: sin acordado (las facturas suman su total)
+  modoIva        ModoIvaProyecto @default(MAS_IVA)
+  tipoCambioFijo Decimal?        @db.Decimal(15, 6) // pesos por dólar; gana sobre la cotización de ARCA
+  fechaInicio    DateTime?       @db.Date
+  fechaFin       DateTime?       @db.Date
+  observaciones  String?
+  creadoPorId    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  movimientosCc MovimientoCuentaCorriente[]
+  comprobantes  Comprobante[]
+  recibos       Recibo[]
+  presupuestos  Presupuesto[]
+  listados      ListadoMateriales[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clienteId, nombre])
+  @@index([tenantId, estado])
+  @@map("proyectos")
+}
+
+/// Avance certificado de un hito "por certificación": la parte exigible del hito (vencimientos,
+/// avisos e imputaciones trabajan sobre esto). La suma no supera el importe del hito.
+model CertificacionHito {
+  id               String                    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hitoId           String
+  hito             MovimientoCuentaCorriente @relation(fields: [tenantId, hitoId], references: [tenantId, id], onDelete: Cascade)
+  fecha            DateTime                  @db.Date
+  descripcion      String
+  importe          Decimal                   @db.Decimal(15, 2)
+  fechaVencimiento DateTime?                 @db.Date
+  creadoPorId      String?
+  createdAt        DateTime                  @default(now())
+
+  @@unique([tenantId, id])
+  @@index([tenantId, hitoId])
+  @@map("certificaciones_hito")
 }
 
 model ComprobanteLinea {
@@ -757,4 +891,246 @@ model ArcaLog {
   @@index([tenantId, comprobanteId])
   @@index([tenantId, createdAt])
   @@map("arca_logs")
+}
+
+// ─────────────────────────────── Avisos ───────────────────────────────
+
+/// Resumen diario de vencimientos enviado (uno por empresa y día: el job no lo repite si se reinicia).
+model AvisoEmail {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fecha         DateTime @db.Date
+  destinatarios String[]
+  vencidos      Int
+  proximos      Int
+  transporte    String // smtp | log
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, fecha])
+  @@map("avisos_email")
+}
+
+// ─────────────────────────────── Presupuestos ───────────────────────────────
+
+enum EstadoPresupuesto {
+  BORRADOR // editable
+  ENVIADO // ya se mandó al cliente: no se edita (se duplica)
+  ACEPTADO // puede crear un proyecto
+  RECHAZADO
+  VENCIDO // pasó la fecha de vencimiento sin aceptarse ni rechazarse
+}
+
+enum FormaCotizar {
+  POR_ITEM // cada ítem con su importe; el total es la suma
+  GLOBAL // varios trabajos y un solo total
+  SUPERFICIE // medidas, metros cuadrados a cubrir e importe
+}
+
+enum IvaPresupuesto {
+  SIN_IVA // no se menciona el IVA
+  NO_INCLUYE // se aclara "no incluye IVA"
+  DISCRIMINADO // subtotal, IVA y total con IVA
+}
+
+/// Presupuesto (no es comprobante fiscal: no va a ARCA ni genera deuda). Numeración P-0000001 por empresa.
+model Presupuesto {
+  id               String            @id @default(cuid())
+  tenantId         String
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  numero           Int
+  fecha            DateTime          @db.Date
+  fechaVencimiento DateTime          @db.Date
+  estado           EstadoPresupuesto @default(BORRADOR)
+  clienteId        String
+  cliente          Cliente           @relation(fields: [tenantId, clienteId], references: [tenantId, id], onDelete: Restrict)
+  titulo           String? // "Cubierta de galpón"
+  lugar            String? // obra o lugar del trabajo
+  moneda           Moneda            @default(ARS)
+  formaCotizar     FormaCotizar      @default(POR_ITEM)
+  // Solo SUPERFICIE: { ancho, largo, alturaLateral?, alturaCumbrera?, metrosCuadrados, precioMetroCuadrado? } (strings decimales).
+  superficie       Json?
+  importeGlobal    Decimal?          @db.Decimal(15, 2) // GLOBAL y SUPERFICIE sin precio por m²
+  ivaModo          IvaPresupuesto    @default(NO_INCLUYE)
+  alicuotaIva      Decimal           @default(21) @db.Decimal(5, 2)
+  subtotal         Decimal           @default(0) @db.Decimal(15, 2)
+  iva              Decimal           @default(0) @db.Decimal(15, 2)
+  total            Decimal           @default(0) @db.Decimal(15, 2)
+  // Observaciones elegidas del catálogo, copiadas: [{ texto, valor? }].
+  observaciones    Json              @default("[]")
+  notas            String? // texto libre que va antes de las observaciones
+  // Copias al guardar mientras es borrador: cambiar el cliente o la empresa después no lo modifica.
+  clienteSnapshot  Json
+  emisorSnapshot   Json
+  proyectoId       String? // proyecto creado desde este presupuesto aceptado
+  proyecto         Proyecto?         @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  duplicadoDeId    String?
+  creadoPorId      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  items    PresupuestoItem[]
+  listados ListadoMateriales[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, numero])
+  @@index([tenantId, estado])
+  @@index([tenantId, clienteId])
+  @@map("presupuestos")
+}
+
+model PresupuestoItem {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  presupuestoId String
+  presupuesto   Presupuesto @relation(fields: [tenantId, presupuestoId], references: [tenantId, id], onDelete: Cascade)
+  orden         Int
+  cantidad      String? // texto: "1", "120 m²", "4"
+  descripcion   String // con formato limitado (HTML saneado: p, b, i, u y colores de la paleta)
+  importe       Decimal?    @db.Decimal(15, 2) // solo POR_ITEM: total del renglón
+
+  @@index([tenantId, presupuestoId])
+  @@map("presupuesto_items")
+}
+
+/// Ítem frecuente: plantilla que se copia al presupuesto (editarlo ahí no cambia la biblioteca).
+model ItemBiblioteca {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  titulo      String
+  descripcion String // con formato limitado
+  categoria   String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, titulo])
+  @@map("items_biblioteca")
+}
+
+/// Observación del catálogo. `texto` puede llevar {valor} donde va lo que se completa (ej. "Plazo de obra: {valor}").
+model ObservacionCatalogo {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  texto         String
+  llevaValor    Boolean  @default(false)
+  valorSugerido String?
+  porDefecto    Boolean  @default(false) // viene tildada en un presupuesto nuevo
+  orden         Int      @default(0)
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, texto])
+  @@map("observaciones_catalogo")
+}
+
+// ─────────────────────────────── Materiales ───────────────────────────────
+
+/// Proveedor del tenant (genérico, sirve para cualquier rubro). Con listados o materiales no se borra: se desactiva.
+model Proveedor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nombre    String // nombre o razón social
+  cuit      String?
+  contacto  String?
+  telefono  String?
+  email     String?
+  notas     String?
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materiales Material[]
+  listados   ListadoMateriales[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, nombre])
+  @@map("proveedores")
+}
+
+/// Material del catálogo: precio de costo y de venta, cada uno en pesos o dólares. Usado en listados: se desactiva.
+model Material {
+  id                    String     @id @default(cuid())
+  tenantId              String
+  tenant                Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  nombre                String
+  unidad                String // barras, metros, chapas, unidades, litros, m³, kg, rollos…
+  categoria             String?
+  precioCosto           Decimal?   @db.Decimal(15, 2)
+  monedaCosto           Moneda     @default(ARS)
+  precioVenta           Decimal?   @db.Decimal(15, 2)
+  monedaVenta           Moneda     @default(ARS)
+  proveedorId           String? // proveedor habitual
+  proveedor             Proveedor? @relation(fields: [tenantId, proveedorId], references: [tenantId, id], onDelete: Restrict)
+  preciosActualizadosEn DateTime?
+  activo                Boolean    @default(true)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  renglones RenglonListado[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, nombre])
+  @@map("materiales")
+}
+
+enum PreciosListado {
+  NINGUNO // para pedir cotización al proveedor
+  COSTO
+  VENTA // para el cliente
+}
+
+/// Listado de materiales (pedido o cálculo) de una obra, suelto o de un presupuesto. Guarda copia de nombre, unidad y precios.
+model ListadoMateriales {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  titulo        String
+  fecha         DateTime       @db.Date
+  proyectoId    String?
+  proyecto      Proyecto?      @relation(fields: [tenantId, proyectoId], references: [tenantId, id], onDelete: Restrict)
+  presupuestoId String?
+  presupuesto   Presupuesto?   @relation(fields: [tenantId, presupuestoId], references: [tenantId, id], onDelete: Restrict)
+  proveedorId   String?
+  proveedor     Proveedor?     @relation(fields: [tenantId, proveedorId], references: [tenantId, id], onDelete: Restrict)
+  destino       String? // destino o dirección de entrega
+  observaciones String?
+  precios       PreciosListado @default(NINGUNO)
+  creadoPorId   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  renglones RenglonListado[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, proyectoId])
+  @@map("listados_materiales")
+}
+
+model RenglonListado {
+  id          String            @id @default(cuid())
+  tenantId    String
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  listadoId   String
+  listado     ListadoMateriales @relation(fields: [tenantId, listadoId], references: [tenantId, id], onDelete: Cascade)
+  orden       Int
+  cantidad    Decimal           @db.Decimal(15, 3)
+  materialId  String? // null: texto libre
+  material    Material?         @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: Restrict)
+  nombre      String
+  unidad      String
+  precioCosto Decimal?          @db.Decimal(15, 2)
+  monedaCosto Moneda?
+  precioVenta Decimal?          @db.Decimal(15, 2)
+  monedaVenta Moneda?
+
+  @@index([tenantId, listadoId])
+  @@map("renglones_listado")
 }

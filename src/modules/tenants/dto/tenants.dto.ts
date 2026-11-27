@@ -49,6 +49,49 @@ export class ActualizarEmisorDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'inicioActividades debe tener formato YYYY-MM-DD.' })
   inicioActividades?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  telefono?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  emailContacto?: string | null;
+}
+
+export class ActualizarPreferenciasDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'La etiqueta no puede quedar vacía.' })
+  @MaxLength(40)
+  etiquetaProyecto?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'La etiqueta no puede quedar vacía.' })
+  @MaxLength(40)
+  etiquetaProyectoPlural?: string;
+
+  /** Resumen diario por email con lo vencido y lo que vence pronto. */
+  @IsOptional()
+  @IsBoolean()
+  avisosEmail?: boolean;
+
+  /** Cuántos días antes del vencimiento entra en el aviso. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(30)
+  diasAvisoVencimiento?: number;
+
+  /** Validez por defecto de un presupuesto nuevo, en días. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  diasValidezPresupuesto?: number;
 }
 
 export class CrearPuntoVentaDto {
@@ -105,6 +148,11 @@ export class ActualizarPlantillaPdfDto {
   @IsString()
   @MaxLength(500)
   textoPie?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  firmaTexto?: string | null;
 
   @IsOptional()
   @IsBoolean()

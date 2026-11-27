@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { AccesoController, IntegracionesController } from './integraciones.controller';
 import { FirebaseFederacionService } from './firebase-federacion.service';
 import { IntegracionesService } from './integraciones.service';
+import { UsuariosService } from './usuarios.service';
 
 @Module({
   imports: [
@@ -30,7 +31,9 @@ import { IntegracionesService } from './integraciones.service';
     IntegracionesService,
     AccesoService,
     FirebaseFederacionService,
+    UsuariosService,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
+  exports: [UsuariosService],
 })
 export class AuthModule {}

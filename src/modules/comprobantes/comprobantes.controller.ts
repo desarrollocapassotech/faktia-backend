@@ -13,7 +13,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { CurrentAuth, type AuthContext } from '../auth';
+import { CurrentAuth, Modulo, type AuthContext } from '../auth';
 import { RecibosService } from '../recibos';
 import { ComprobantePdfService } from './comprobante-pdf.service';
 import { ComprobantesService } from './comprobantes.service';
@@ -72,12 +72,14 @@ export class ComprobantesController {
   }
 
   @Post()
+  @Modulo('comprobantes')
   crear(@CurrentAuth() auth: AuthContext, @Body() dto: CrearBorradorDto) {
     return this.comprobantes.crearBorrador(auth, dto);
   }
 
   /** Un borrador por cliente (y moneda / mes) a partir de ítems importados y confirmados. */
   @Post('generar')
+  @Modulo('comprobantes')
   generar(@CurrentAuth() auth: AuthContext, @Body() dto: GenerarBorradoresDto) {
     return this.comprobantes.generarDesdeItems(auth, dto);
   }
@@ -88,11 +90,13 @@ export class ComprobantesController {
   }
 
   @Patch(':id')
+  @Modulo('comprobantes')
   actualizar(@CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() dto: ActualizarBorradorDto) {
     return this.comprobantes.actualizarBorrador(auth, id, dto);
   }
 
   @Delete(':id')
+  @Modulo('comprobantes')
   @HttpCode(204)
   eliminar(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
     return this.comprobantes.eliminar(auth.tenantId, id);
@@ -100,6 +104,7 @@ export class ComprobantesController {
 
   /** Requiere header Idempotency-Key (uno por clic en "Emitir"): reintentar no duplica. */
   @Post(':id/emitir')
+  @Modulo('comprobantes')
   @HttpCode(200)
   emitir(
     @CurrentAuth() auth: AuthContext,
@@ -114,12 +119,14 @@ export class ComprobantesController {
   }
 
   @Post(':id/verificar')
+  @Modulo('comprobantes')
   @HttpCode(200)
   verificar(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
     return this.emision.verificar(auth.tenantId, id);
   }
 
   @Post(':id/notas')
+  @Modulo('comprobantes')
   crearNota(@CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() dto: CrearNotaDto) {
     return this.comprobantes.crearNota(auth, id, dto);
   }

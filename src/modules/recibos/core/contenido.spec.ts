@@ -84,3 +84,20 @@ describe('armarContenido', () => {
     expect(() => armarContenido({ ...pago, tipo: 'OTRO' } as unknown as ReciboPago)).toThrow(/COBRO o PAGO/);
   });
 });
+
+describe('secciones y datos extra (estado de una obra)', () => {
+  it('pasan al contenido limpias; las vacías se descartan', () => {
+    const c = armarContenido({
+      ...cobro,
+      emisor: { ...cobro.emisor, detalle: ['Tel. 343 412-3456', '  ', 'IVA Responsable Inscripto'] },
+      datosExtra: [['Equivalencia', 'US$ 1.000,00'], ['', 'sin clave']],
+      secciones: [
+        { titulo: 'Entregas', filas: [{ texto: 'Anticipo', detalle: '14/10/2026', importe: '$ 2.595.000,00' }] },
+        { titulo: 'Vacía', filas: [] },
+      ],
+    });
+    expect(c.encabezado.detalle).toEqual(['Tel. 343 412-3456', 'IVA Responsable Inscripto']);
+    expect(c.datosExtra).toEqual([['Medio de pago', 'Transferencia'], ['Equivalencia', 'US$ 1.000,00']]);
+    expect(c.secciones).toEqual([{ titulo: 'Entregas', filas: [{ texto: 'Anticipo', detalle: '14/10/2026', importe: '$ 2.595.000,00', destacado: false }] }]);
+  });
+});

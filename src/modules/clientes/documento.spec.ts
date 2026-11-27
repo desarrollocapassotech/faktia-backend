@@ -1,4 +1,4 @@
-import { normalizarDocumento } from './documento';
+import { claveDocumento, normalizarDocumento } from './documento';
 
 describe('normalizarDocumento', () => {
   it('CUIT con guiones válido', () => {
@@ -18,5 +18,15 @@ describe('normalizarDocumento', () => {
   });
   it('pasaporte alfanumérico', () => {
     expect(normalizarDocumento('PASAPORTE', 'aa123456')).toEqual({ ok: true, numero: 'AA123456' });
+  });
+});
+
+describe('claveDocumento', () => {
+  it('con documento: tipo y número (no se repite en la empresa)', () => {
+    expect(claveDocumento('CUIT', '30668346908')).toBe('CUIT:30668346908');
+    expect(claveDocumento('DNI', '12345678')).toBe('DNI:12345678');
+  });
+  it('sin documento: sin clave, así puede haber varios (Diego Streck, Wilson Carrillo)', () => {
+    expect(claveDocumento('CONSUMIDOR_FINAL', '0')).toBeNull();
   });
 });

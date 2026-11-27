@@ -15,7 +15,6 @@ Arquitectura en `../ARCHITECTURE.md` (módulos §4, flujos §8, seguridad §9, d
   6. si cambia la API: `npm run openapi` y commitear `docs/openapi.json`.
 - Finales de línea LF (`.gitattributes`). Archivos en UTF-8 sin BOM.
 - Código, nombres y comentarios en español, como el resto del proyecto. Mensajes de error para el usuario en español rioplatense.
-- Test conocido que falla también en el código original: `generar-recibo.spec.ts › sin línea de firma no lleva la leyenda para firmar`. pdfkit comprime el contenido y el test busca el texto en crudo. No es una regresión.
 
 ## Arquitectura (reglas que no se rompen)
 

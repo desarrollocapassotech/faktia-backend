@@ -7,6 +7,7 @@ import { analizarCertificado, CertificadoInvalidoError, normalizarPem } from './
 import {
   ActualizarEmisorDto,
   ActualizarPlantillaPdfDto,
+  ActualizarPreferenciasDto,
   ActualizarPuntoVentaDto,
   CargarCertificadoDto,
   CrearPuntoVentaDto,
@@ -29,6 +30,8 @@ export interface EmisorDatos {
   ingresosBrutos: string | null;
   inicioActividades: Date | null;
   ambienteArca: AmbienteArca;
+  telefono: string | null;
+  emailContacto: string | null;
   /** Campos que salieron del padrón de ARCA: no se editan a mano. */
   camposDeArca: CampoArca[];
   /** true cuando razón social, CUIT, condición IVA y domicilio están cargados (alcanza para facturar). */
@@ -67,7 +70,19 @@ export interface PlantillaPdfDatos {
   colorPrimario: string;
   colorSecundario: string;
   textoPie: string | null;
+  /** Firma de los documentos que no van a ARCA (presupuestos, recibos, listados). */
+  firmaTexto: string | null;
   mostrarDuplicado: boolean;
+}
+
+/** Preferencias de la empresa que no son fiscales: etiquetas y defaults de los módulos. */
+export interface PreferenciasEmpresa {
+  modulos: string[];
+  etiquetaProyecto: string;
+  etiquetaProyectoPlural: string;
+  avisosEmail: boolean;
+  diasAvisoVencimiento: number;
+  diasValidezPresupuesto: number;
 }
 
 function detectarMimeImagen(buf: Buffer): 'image/png' | 'image/jpeg' | null {
@@ -98,6 +113,8 @@ export class TenantsService {
       ingresosBrutos: t.ingresosBrutos,
       inicioActividades: t.inicioActividades,
       ambienteArca: t.ambienteArca,
+      telefono: t.telefono,
+      emailContacto: t.emailContacto,
       camposDeArca: t.camposDeArca.filter((c): c is CampoArca => (CAMPOS_ARCA as string[]).includes(c)),
       datosFiscalesCompletos: Boolean(t.razonSocial?.trim() && t.cuit && t.condicionIva && t.domicilioFiscal?.trim()),
     };
@@ -177,6 +194,8 @@ export class TenantsService {
         condicionIva: dto.condicionIva,
         domicilioFiscal: dto.domicilioFiscal?.trim(),
         ingresosBrutos: dto.ingresosBrutos === undefined ? undefined : dto.ingresosBrutos?.trim() || null,
+        telefono: dto.telefono === undefined ? undefined : dto.telefono?.trim() || null,
+        emailContacto: dto.emailContacto === undefined ? undefined : dto.emailContacto?.trim() || null,
         inicioActividades:
           dto.inicioActividades === undefined
             ? undefined
@@ -311,6 +330,48 @@ export class TenantsService {
     return { certPem: descifrar(c.certCifrado), keyPem: descifrar(c.claveCifrada) };
   }
 
+  // ── Preferencias ─────────────────────────────────────────────────────────
+
+  async obtenerPreferencias(tenantId: string): Promise<PreferenciasEmpresa> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { modulosHabilitados: true, etiquetaProyecto: true, etiquetaProyectoPlural: true, avisosEmail: true, diasAvisoVencimiento: true, diasValidezPresupuesto: true },
+    });
+    if (!t) throw new NotFoundException('Empresa no encontrada.');
+    return {
+      modulos: t.modulosHabilitados,
+      etiquetaProyecto: t.etiquetaProyecto,
+      etiquetaProyectoPlural: t.etiquetaProyectoPlural,
+      avisosEmail: t.avisosEmail,
+      diasAvisoVencimiento: t.diasAvisoVencimiento,
+      diasValidezPresupuesto: t.diasValidezPresupuesto,
+    };
+  }
+
+  /** Las etiquetas las puede cambiar la empresa; los módulos, solo el administrador de Faktia (script). */
+  async actualizarPreferencias(tenantId: string, dto: ActualizarPreferenciasDto): Promise<PreferenciasEmpresa> {
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        etiquetaProyecto: dto.etiquetaProyecto?.trim(),
+        etiquetaProyectoPlural: dto.etiquetaProyectoPlural?.trim(),
+        avisosEmail: dto.avisosEmail,
+        diasAvisoVencimiento: dto.diasAvisoVencimiento,
+        diasValidezPresupuesto: dto.diasValidezPresupuesto,
+      },
+    });
+    return this.obtenerPreferencias(tenantId);
+  }
+
+  /** Empresas activas que reciben el resumen diario de vencimientos (con cuenta corriente habilitada). */
+  async empresasConAvisos(): Promise<Array<{ id: string; diasAvisoVencimiento: number; nombre: string }>> {
+    const filas = await this.prisma.tenant.findMany({
+      where: { activo: true, avisosEmail: true, modulosHabilitados: { has: 'cuenta-corriente' } },
+      select: { id: true, diasAvisoVencimiento: true, nombreFantasia: true },
+    });
+    return filas.map((f) => ({ id: f.id, diasAvisoVencimiento: f.diasAvisoVencimiento, nombre: f.nombreFantasia }));
+  }
+
   // ── Plantilla PDF ────────────────────────────────────────────────────────
 
   async obtenerPlantilla(tenantId: string): Promise<PlantillaPdfDatos> {
@@ -321,6 +382,7 @@ export class TenantsService {
       colorPrimario: p?.colorPrimario ?? '#111827',
       colorSecundario: p?.colorSecundario ?? '#6B7280',
       textoPie: p?.textoPie ?? null,
+      firmaTexto: p?.firmaTexto ?? null,
       mostrarDuplicado: p?.mostrarDuplicado ?? true,
     };
   }
@@ -335,6 +397,7 @@ export class TenantsService {
       colorPrimario: dto.colorPrimario,
       colorSecundario: dto.colorSecundario,
       textoPie: dto.textoPie === undefined ? undefined : dto.textoPie?.trim() || null,
+      firmaTexto: dto.firmaTexto === undefined ? undefined : dto.firmaTexto?.trim() || null,
       mostrarDuplicado: dto.mostrarDuplicado,
     };
     await this.prisma.plantillaPdf.upsert({ where: { tenantId }, create: { tenantId, ...data }, update: data });
