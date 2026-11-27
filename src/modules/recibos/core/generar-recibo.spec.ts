@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { inflateSync } from 'zlib';
 import { generarRecibo } from './generar-recibo';
 import { ReciboInvalidoError, type ReciboCobro } from './recibo.types';
 
@@ -17,6 +18,23 @@ const base: ReciboCobro = {
 // Los diccionarios de página no se comprimen: se pueden contar en el PDF crudo.
 function paginas(pdf: Buffer): number {
   return (pdf.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length;
+}
+
+// Texto dibujado con las fuentes estándar: pdfkit comprime los streams (FlateDecode) y
+// escribe cada línea como un arreglo TJ de trozos hexadecimales partidos por el kerning.
+function texto(pdf: Buffer): string {
+  const crudo = pdf.toString('latin1');
+  const streams = [...crudo.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)].map((m) => {
+    try {
+      return inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1');
+    } catch {
+      return '';
+    }
+  });
+  return streams
+    .flatMap((s) => [...s.matchAll(/\[([^\]]*)\]\s*TJ/g)])
+    .map((tj) => [...tj[1].matchAll(/<([0-9a-fA-F]*)>/g)].map((h) => Buffer.from(h[1], 'hex').toString('latin1')).join(''))
+    .join('\n');
 }
 
 describe('generarRecibo', () => {
@@ -39,11 +57,9 @@ describe('generarRecibo', () => {
   });
 
   it('sin línea de firma no lleva la leyenda para firmar', async () => {
-    const texto = async (lineaFirma: boolean) => (await generarRecibo(base, { lineaFirma })).pdf.toString('latin1');
-    // pdfkit escribe el texto en hexadecimal: se busca una palabra de la leyenda ("Firma").
-    const firma = Buffer.from('Firma').toString('hex');
-    expect((await texto(true)).toLowerCase()).toContain(firma);
-    expect((await texto(false)).toLowerCase()).not.toContain(firma);
+    const dibujado = async (lineaFirma: boolean) => texto((await generarRecibo(base, { lineaFirma })).pdf);
+    expect(await dibujado(true)).toContain('Firma y aclaración');
+    expect(await dibujado(false)).not.toContain('Firma y aclaración');
   });
 
   it('valida antes de dibujar', async () => {
