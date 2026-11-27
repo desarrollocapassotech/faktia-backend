@@ -43,7 +43,7 @@ export class ComprobantesController {
    */
   @Get()
   async listar(@CurrentAuth() auth: AuthContext, @Query() q: ListarComprobantesQuery) {
-    const conRecibos = q.incluirRecibos && (!q.clase || q.clase === 'RECIBO') && (!q.estado || q.estado === 'EMITIDO') && !q.periodo;
+    const conRecibos = q.incluirRecibos && (!q.clase || q.clase === 'RECIBO') && (!q.estado || q.estado === 'EMITIDO' || q.estado === 'ANULADO') && !q.periodo;
     if (!conRecibos) return this.comprobantes.listar(auth.tenantId, q);
 
     const porPagina = q.porPagina ?? 25;
@@ -53,7 +53,16 @@ export class ComprobantesController {
       q.clase === 'RECIBO' ? { total: 0, items: [] } : this.comprobantes.ventanaListado(auth.tenantId, q, limite),
       this.recibos.listarParaListado(
         auth.tenantId,
-        { numero: q.numero, clienteId: q.clienteId, fechaDesde: q.fechaDesde, fechaHasta: q.fechaHasta, ordenarPor: q.ordenarPor, dir: q.dir },
+        {
+          numero: q.numero,
+          clienteId: q.clienteId,
+          fechaDesde: q.fechaDesde,
+          fechaHasta: q.fechaHasta,
+          ordenarPor: q.ordenarPor,
+          dir: q.dir,
+          // Un recibo anulado figura como ANULADO; el resto, como EMITIDO.
+          anulados: q.estado === 'ANULADO' ? true : q.estado === 'EMITIDO' ? false : undefined,
+        },
         limite,
       ),
     ]);

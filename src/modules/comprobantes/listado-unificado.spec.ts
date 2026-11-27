@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { compararFilas, paginaUnificada, type FilaListado } from './listado-unificado';
+import { compararFilas, filaDeRecibo, paginaUnificada, type FilaListado } from './listado-unificado';
 
 function fila(p: Partial<FilaListado> & { id: string }): FilaListado {
   return {
@@ -65,5 +65,13 @@ describe('listado unificado (comprobantes + recibos)', () => {
     const a = fila({ id: 'a', cliente: { id: null, razonSocial: 'Ángel' } });
     const b = recibo({ id: 'b', cliente: { id: null, razonSocial: 'beta' } });
     expect([b, a].sort(compararFilas('cliente', 'asc')).map((f) => f.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('recibos en el listado', () => {
+  const base = { id: 'r', tipo: 'COBRO' as const, numero: '0001-00000001', fecha: new Date('2026-11-01'), moneda: 'ARS' as const, total: new Prisma.Decimal(100), createdAt: new Date(), clienteId: null, contraparteNombre: 'X' };
+  it('un recibo vigente figura emitido y uno anulado, anulado', () => {
+    expect(filaDeRecibo({ ...base, anuladoEn: null }).estado).toBe('EMITIDO');
+    expect(filaDeRecibo({ ...base, anuladoEn: new Date() }).estado).toBe('ANULADO');
   });
 });

@@ -6,7 +6,7 @@ import type { OrdenComprobantes } from './dto/comprobantes.dto';
 /**
  * Fila del listado de comprobantes de la app: comprobantes de ARCA y recibos guardados juntos.
  * Los recibos no tienen punto de venta, CAE ni ambiente; su número es texto libre (`numeroTexto`)
- * y siempre están emitidos.
+ * y están emitidos, salvo los anulados (ANULADO).
  */
 export interface FilaListado {
   id: string;
@@ -35,7 +35,7 @@ export function filaDeRecibo(r: ReciboResumen): FilaListado {
     id: r.id,
     clase: 'recibo',
     tipo: r.tipo === 'COBRO' ? 'RECIBO_COBRO' : 'RECIBO_PAGO',
-    estado: 'EMITIDO',
+    estado: r.anuladoEn ? 'ANULADO' : 'EMITIDO',
     ambiente: null,
     numero: null,
     numeroTexto: r.numero,

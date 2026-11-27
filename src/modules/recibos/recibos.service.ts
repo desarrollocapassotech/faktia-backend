@@ -64,6 +64,8 @@ export interface FiltroListadoRecibos {
   fechaHasta?: string;
   ordenarPor?: OrdenListadoRecibos;
   dir?: 'asc' | 'desc';
+  /** true: solo anulados; false: solo vigentes; sin esto, todos. */
+  anulados?: boolean;
 }
 
 /** Lo que el listado de comprobantes necesita de un recibo. */
@@ -77,6 +79,7 @@ export interface ReciboResumen {
   createdAt: Date;
   clienteId: string | null;
   contraparteNombre: string;
+  anuladoEn: Date | null;
 }
 
 /** Recibo de cobro visto desde la cuenta corriente. `comprobantesAplicados`: [{ descripcion, importe, comprobanteId? }]. */
@@ -390,6 +393,7 @@ export class RecibosService {
     const where: Prisma.ReciboWhereInput = {
       tenantId,
       ...(f.clienteId ? { clienteId: f.clienteId } : {}),
+      ...(f.anulados === undefined ? {} : { anuladoEn: f.anulados ? { not: null } : null }),
       ...(f.numero ? { numero: { contains: f.numero.trim(), mode: 'insensitive' } } : {}),
       ...(f.fechaDesde || f.fechaHasta
         ? { fecha: { ...(f.fechaDesde ? { gte: deYmd(f.fechaDesde) } : {}), ...(f.fechaHasta ? { lte: deYmd(f.fechaHasta) } : {}) } }
@@ -401,7 +405,7 @@ export class RecibosService {
         where,
         orderBy: ordenRecibos(f.ordenarPor, f.dir ?? 'asc'),
         take: limite,
-        select: { id: true, tipo: true, numero: true, fecha: true, moneda: true, total: true, createdAt: true, clienteId: true, contraparteNombre: true },
+        select: { id: true, tipo: true, numero: true, fecha: true, moneda: true, total: true, createdAt: true, clienteId: true, contraparteNombre: true, anuladoEn: true },
       }),
     ]);
     return { total, items };

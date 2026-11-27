@@ -19,7 +19,7 @@
 | 5. Materiales + proveedores | `b709c95` | `d71c345` |
 | 6. Documentación | (último commit) | — |
 
-Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas aplican sobre una base vacía sin diferencias con el schema, y pasan typecheck, lint, `deps`, build (los dos repos) y **393 tests** del backend, incluidos el e2e de aislamiento y los cinco nuevos (`ale-base`, `ale-proyectos`, `ale-avisos`, `ale-presupuestos`, `ale-materiales`). Falla solo el test conocido de `generar-recibo.spec.ts` (CLAUDE.md). Las pantallas se recorrieron con Playwright contra el backend real y en 390 px no hay scroll horizontal.
+Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas aplican sobre una base vacía sin diferencias con el schema, y pasan typecheck, lint, `deps`, build (los dos repos) y **394 tests** del backend, incluidos el e2e de aislamiento y los cinco nuevos (`ale-base`, `ale-proyectos`, `ale-avisos`, `ale-presupuestos`, `ale-materiales`). Falla solo el test conocido de `generar-recibo.spec.ts` (CLAUDE.md). Las pantallas se recorrieron con Playwright contra el backend real y en 390 px no hay scroll horizontal.
 
 ### Fase 1: Base
 
@@ -73,6 +73,12 @@ Verificado en este entorno, con un Postgres 16 local: las 5 migraciones nuevas a
 - **PDF** con el layout compartido nuevo (`src/shared/pdf/documento-pdf.ts`): encabezado con logo y datos de la empresa, cliente, obra, ítems con formato, superficie, totales, observaciones con valores y firma.
 - Frontend: listado con filtros por estado, editor (cliente con alta rápida, biblioteca, editor de texto con formato, formas de cotizar, IVA, observaciones, notas, totales en vivo), acciones por estado, crear obra y la pantalla de biblioteca.
 - Tests: `formato.spec.ts`, `presupuesto.spec.ts` (Diego Streck, Municipalidad, LAR), e2e `src/ale-presupuestos.e2e.spec.ts` y aislamiento ampliado.
+
+### Ajustes después de la revisión
+
+- **Recibos anulados en el listado de Comprobantes:** figuran como "Anulado" (tachado) y el filtro por estado los separa (`estado=ANULADO` / `EMITIDO` también filtra recibos).
+- **Ficha del cliente:** muestra sus obras (estado y saldo) y sus presupuestos, con "Nueva obra" y "Nuevo presupuesto" que llegan con el cliente elegido.
+- **Editor de facturas:** con el cliente elegido, el selector de obra aparece siempre y tiene "Nueva" para crear la obra sin salir (nombre y acordado opcional; el plan se carga después en la obra).
 
 ### Fase 6: Documentación
 
